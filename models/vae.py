@@ -83,8 +83,8 @@ class VAE_Encoder(nn.Module):
         self.out = nn.Sequential(
             nn.GroupNorm(num_groups=32, num_channels=curr_channels),
             nn.SiLU(),
-            nn.Conv2d(curr_channels, z_channels, kernel_size=3, stride=1, padding=1),
-            nn.Conv2d(z_channels, z_channels, kernel_size=1, stride=1, padding=0))
+            nn.Conv2d(curr_channels, 2*z_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(2*z_channels, 2*z_channels, kernel_size=1, stride=1, padding=0))
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv_in(x)
@@ -102,7 +102,7 @@ class VAE_Encoder(nn.Module):
 
 
 class VAE_Decoder(nn.Module):
-    def __init__(self, in_channels: int, ch_mult: List[int]=[1, 2, 4, 8], dropout: float=0.0, z_channels: int=4):
+    def __init__(self, ch_mult: List[int]=[1, 2, 4, 8], dropout: float=0.0, z_channels: int=8):
         super().__init__()
 
         ch = 128
@@ -154,41 +154,31 @@ class VAE_Decoder(nn.Module):
 
         out = self.out(x)
         return out
-
-class GaussianDistribution:
-    def __init__(self, z: torch.Tensor):
-        self.mean, log_variance = z.chunk(2, dim=1)
-        log_variance = torch.clamp(log_variance, -30, 20)
-        variance = torch.exp(log_variance)
-        self.stdev = torch.sqrt(variance)
-        
-    def sample(self, noise=None):
-        if noise:
-            return self.mean + self.stdev * noise
-        else:
-            return self.mean + self.stdev * torch.randn_like(self.stdev)
-        
         
         
 class VAE(nn.Module):
     def __init__(self):
         super().__init__()
         self.encoder = VAE_Encoder(in_channels=3)
-        self.decoder = VAE_Decoder(in_channels=4)
+        self.decoder = VAE_Decoder(z_channels=8)
 
-    def encode(self, x: torch.Tensor) -> GaussianDistribution:
+    def encode(self, x: torch.Tensor, noise=None) -> torch.Tensor:
         # z: (batch_size, channels, h, w)
         z = self.encoder(x)
-        return GaussianDistribution(z)
+        mean, log_variance = z.chunk(2, dim=1)
+        log_variance = torch.clamp(log_variance, -20, 30)
+        variance = log_variance.exp()
+        stdev = torch.sqrt(variance)
+        if noise:
+            return mean + stdev * noise
+        else:
+            return mean + stdev * torch.randn_like(stdev)
+        
 
     def decode(self, z: torch.Tensor):
         return self.decoder(z)
-    
 
-    def forward(self, x: torch.Tensor, noise) -> torch.Tensor:
-        # x: (batch_size, channels, h, w)
-        z = self.encode(x).sample()
-        x = self.decode(z)
-        x *= 0.18215
-        return x
+# class VQ_VAE(nn.Module):
+#     def __init__(self):
+#         super().__init__()
         
