@@ -35,13 +35,16 @@ class AttentionBlock(nn.Module):
 
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch_size, channels, h, w)
+        # x: (n, c, h, w)
         batch_size, channels, h, w = x.shape
         x_norm = self.groupnorm(x)
-
+        # (n, c, h, w) -> (n, c, h * w) -> (n, h * w, c)
         x_norm = x_norm.view((batch_size, channels, -1)).transpose(1, 2)
 
-        out = self.attn(q=x_norm, k=x_norm, v=x_norm)
+        # (n, h * w, c)
+        out = self.attn(x=x_norm)
+
+        # (n, h * w, c) -> (n, c, h * w) -> (n, c, h, w)
         out = out.transpose(1, 2).reshape(x.shape)
         
         return out + x
@@ -119,7 +122,6 @@ class VAE_Decoder(nn.Module):
 
         # upsampling
         self.up = nn.ModuleList()
-        in_ch_mult = [1] + ch_mult
         for i in reversed(range(len(ch_mult))):
             block_out = ch * ch_mult[i]
             block = nn.Sequential(
@@ -157,13 +159,13 @@ class VAE_Decoder(nn.Module):
         
         
 class VAE(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels: int=3, z_channels: int=8):
         super().__init__()
-        self.encoder = VAE_Encoder(in_channels=3)
-        self.decoder = VAE_Decoder(z_channels=8)
+        self.encoder = VAE_Encoder(in_channels=in_channels)
+        self.decoder = VAE_Decoder(z_channels=z_channels)
 
     def encode(self, x: torch.Tensor, noise=None) -> torch.Tensor:
-        # z: (batch_size, channels, h, w)
+        # z: (n, c, h, w)
         z = self.encoder(x)
         mean, log_variance = z.chunk(2, dim=1)
         log_variance = torch.clamp(log_variance, -20, 30)
@@ -176,9 +178,4 @@ class VAE(nn.Module):
         
 
     def decode(self, z: torch.Tensor):
-        return self.decoder(z)
-
-# class VQ_VAE(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-        
+        return self.decoder(z)   
