@@ -246,7 +246,6 @@ class UNet(nn.Module):
         
         x, skip_connections = self.encoder(x, t_embed, cond)
         x = self.bottle_neck(x, t_embed, cond)
-        print('decoder: ')
         x = self.decoder(x, skip_connections, t_embed, cond)
         
         output = self.output(x)

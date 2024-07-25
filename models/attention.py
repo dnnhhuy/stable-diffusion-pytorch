@@ -7,8 +7,10 @@ from typing import Optional
 class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, use_bias=True):
         super().__init__()
+        
         if not cond_dim:
             cond_dim = embedding_dim
+            
         self.proj_q = nn.Linear(embedding_dim, embedding_dim, bias=use_bias)
         self.proj_k = nn.Linear(cond_dim, embedding_dim, bias=use_bias)
         self.proj_v = nn.Linear(cond_dim, embedding_dim, bias=use_bias)
@@ -24,13 +26,12 @@ class MultiheadSelfAttention(nn.Module):
         q = self.proj_q(x)
         if cond is None:
             cond = x
-            k = self.proj_k(cond).unsqueeze(1)
-            v = self.proj_v(cond).unsqueeze(1)
-        else:
             k = self.proj_k(cond)
             v = self.proj_v(cond)
+        else:
+            k = self.proj_k(cond).unsqueeze(1)
+            v = self.proj_v(cond).unsqueeze(1)
             
-        print(k.shape, v.shape)
         # (batch_size, seq_len, embedding_dim) -> (n, seq_len, num_heads, head_dim) -> (n, num_heads, seq_len, head_dim)
         q = q.view(*q.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         k = k.view(*k.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
