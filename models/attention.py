@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 class MultiheadSelfAttention(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, use_bias=True):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768, use_bias=True):
         super().__init__()
         
         if not cond_dim:
@@ -20,17 +20,16 @@ class MultiheadSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=True) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
+        # cond: (n, seq_len, dim)
         
         batch_size, seq_len, embedding_dim = x.shape
-
-        q = self.proj_q(x)
+       
         if cond is None:
             cond = x
-            k = self.proj_k(cond)
-            v = self.proj_v(cond)
-        else:
-            k = self.proj_k(cond).unsqueeze(1)
-            v = self.proj_v(cond).unsqueeze(1)
+            
+        q = self.proj_q(x)
+        k = self.proj_k(cond)
+        v = self.proj_v(cond)
             
         # (batch_size, seq_len, embedding_dim) -> (n, seq_len, num_heads, head_dim) -> (n, num_heads, seq_len, head_dim)
         q = q.view(*q.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)

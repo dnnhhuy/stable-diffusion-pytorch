@@ -6,7 +6,7 @@ from .activation_fn import GeGELU
 from typing import Optional, List
 
 class UNet_TransformerEncoder(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: Optional[int]):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
         super().__init__()
         channels = embedding_dim * num_heads
         self.groupnorm = nn.GroupNorm(32, channels)
@@ -16,7 +16,7 @@ class UNet_TransformerEncoder(nn.Module):
 
         self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
 
-    def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cond: torch.Tensor=None) -> torch.Tensor:
         # x: (b, c, h, w)
         b, c, h, w = x.shape
 
@@ -37,7 +37,7 @@ class UNet_TransformerEncoder(nn.Module):
         return x + x_in
         
 class UNet_AttentionBlock(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: Optional[int]):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
         super().__init__()
         
         if embedding_dim % num_heads:
@@ -103,17 +103,26 @@ class UNet_ResBlock(nn.Module):
         return h + self.proj_input(x)
 
 class TimeEmbedding(nn.Module):
-    def __init__(self, t_embed_dim):
+    def __init__(self, t_embed_dim: int=320):
         super().__init__()
+        self.t_embed_dim = t_embed_dim
         self.ffn = nn.Sequential(
             # (1, 320) -> (1, 1280)
             nn.Linear(t_embed_dim, t_embed_dim * 4),
             nn.SiLU(),
             # (1, 1280) -> (1, 1280)
             nn.Linear(t_embed_dim * 4,  t_embed_dim * 4))
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.ffn(x)
+
+    def _get_time_embedding(self, timestep):
+        half = self.t_embed_dim // 2
+        freqs = torch.pow(1000, -torch.arange(0, half, dtype=torch.float32)/half)
+        x = torch.tensor([timestep], dtype=torch.float32, device=timestep.device)[None, :] * freqs[None, :].to(timestep.device)
+        return torch.cat([torch.cos(x), torch.sin(x)], dim=1)
+            
+    def forward(self, timestep: int) -> torch.Tensor:
+        t_embed = self._get_time_embedding(timestep)
+        print(t_embed.device)
+        return self.ffn(t_embed)
 
 class TimeStepSequential(nn.Sequential):
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond=None) -> torch.Tensor:
@@ -239,10 +248,10 @@ class UNet(nn.Module):
             nn.SiLU(),
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
 
-    def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, timestep: int, cond: torch.Tensor) -> torch.Tensor:
 
-        # (1, 320) -> (1, 1280)
-        t_embed = self.time_embedding(t_embed)
+        # t: int -> (1, 1280)
+        t_embed = self.time_embedding(timestep)
         
         x, skip_connections = self.encoder(x, t_embed, cond)
         x = self.bottle_neck(x, t_embed, cond)
