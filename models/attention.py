@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 class MultiheadSelfAttention(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768, use_bias=True):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, use_bias=True):
         super().__init__()
         
         if not cond_dim:

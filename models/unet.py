@@ -121,7 +121,6 @@ class TimeEmbedding(nn.Module):
             
     def forward(self, timestep: int) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)
-        print(t_embed.device)
         return self.ffn(t_embed)
 
 class TimeStepSequential(nn.Sequential):
