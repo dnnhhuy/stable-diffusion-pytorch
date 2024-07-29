@@ -40,8 +40,7 @@ class AttentionBlock(nn.Module):
         x_norm = self.groupnorm(x)
         # (n, c, h, w) -> (n, c, h * w) -> (n, h * w, c)
         x_norm = x_norm.view((batch_size, channels, -1)).transpose(1, 2)
-        print(x_norm.shape)
-
+        
         # (n, h * w, c)
         out = self.attn(x=x_norm)
 
@@ -98,7 +97,6 @@ class VAE_Encoder(nn.Module):
             x = down.downsample(x)
 
         x = self.mid.res_block_1(x)
-        print(x.shape)
         x = self.mid.attn_block_1(x)
         x = self.mid.res_block_2(x)
 
