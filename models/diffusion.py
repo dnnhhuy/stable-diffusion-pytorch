@@ -42,7 +42,7 @@ class StableDiffusion:
                      use_cosine_schedule: bool,
                      tokenizer=None) -> torch.Tensor:
             
-            latent_shape = (1, 8, LATENT_HEIGHT, LATENT_WIDTH)
+            latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
         
             if sampler == 'ddpm':
                 sampler = DDPMSampler(use_cosine_schedule=use_cosine_schedule)

@@ -50,7 +50,7 @@ class AttentionBlock(nn.Module):
         return out + x
         
 class VAE_Encoder(nn.Module):
-    def __init__(self, in_channels: int, ch_mult: List[int]=[1, 2, 4, 8], dropout: float=0.0, z_channels: int=8):
+    def __init__(self, in_channels: int, ch_mult: List[int]=[1, 2, 4, 4], dropout: float=0.0, z_channels: int=4):
         super().__init__()
         self.conv_in = nn.Conv2d(in_channels, 128, kernel_size=3, stride=1, padding=1)
 
@@ -61,7 +61,7 @@ class VAE_Encoder(nn.Module):
         for i in range(len(ch_mult)):
             block_in = ch * in_ch_mult[i]
             block_out = ch * ch_mult[i]
-            block = nn.Sequential(
+            block = nn.Sequential( 
                 ResidualBlock(block_in, block_out, dropout),
                 ResidualBlock(block_out, block_out, dropout),
             )
@@ -105,7 +105,7 @@ class VAE_Encoder(nn.Module):
 
 
 class VAE_Decoder(nn.Module):
-    def __init__(self, ch_mult: List[int]=[1, 2, 4, 8], dropout: float=0.0, z_channels: int=8):
+    def __init__(self, ch_mult: List[int]=[1, 2, 4, 4], dropout: float=0.0, z_channels: int=4):
         super().__init__()
 
         ch = 128
@@ -150,6 +150,10 @@ class VAE_Decoder(nn.Module):
         x /= 0.18215
         x = self.conv_in(x)
 
+        x = self.mid.res_block_1(x)
+        x = self.mid.attn_block_1(x)
+        x = self.mid.res_block_2(x)
+
         for up in self.up:
             x = up.block(x)
             x = up.upsample(x)
@@ -159,7 +163,7 @@ class VAE_Decoder(nn.Module):
         
         
 class VAE(nn.Module):
-    def __init__(self, in_channels: int=3, z_channels: int=8):
+    def __init__(self, in_channels: int=3, z_channels: int=4):
         super().__init__()
         self.encoder = VAE_Encoder(in_channels=in_channels)
         self.decoder = VAE_Decoder(z_channels=z_channels)

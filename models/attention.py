@@ -5,18 +5,18 @@ import logging
 from typing import Optional
 
 class MultiheadSelfAttention(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, use_bias=True):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True):
         super().__init__()
         
         if not cond_dim:
             cond_dim = embedding_dim
             
-        self.proj_q = nn.Linear(embedding_dim, embedding_dim, bias=use_bias)
-        self.proj_k = nn.Linear(cond_dim, embedding_dim, bias=use_bias)
-        self.proj_v = nn.Linear(cond_dim, embedding_dim, bias=use_bias)
+        self.proj_q = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
+        self.proj_k = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        self.proj_v = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
         self.num_heads = num_heads
         self.head_dim = embedding_dim // self.num_heads
-        self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=use_bias)
+        self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=True) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)

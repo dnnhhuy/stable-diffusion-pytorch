@@ -14,7 +14,7 @@ class ResidualBlock(nn.Module):
         self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
         if in_channels != out_channels:
-            self.proj_input = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+            self.proj_input = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
         else:
             self.proj_input = nn.Identity()
 
@@ -27,6 +27,5 @@ class ResidualBlock(nn.Module):
         out = F.silu(out)
         out = self.dropout(out)
         out = self.conv_2(out)
-        
         return out + self.proj_input(x)
         

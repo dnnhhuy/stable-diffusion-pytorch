@@ -45,24 +45,25 @@ class UNet_AttentionBlock(nn.Module):
             
         self.head_dim = embedding_dim // num_heads
 
-        self.layer_norm1 = nn.LayerNorm(embedding_dim)
-        self.attn1 = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embedding_dim, cond_dim=cond_dim, use_bias=False)
+        self.layernorm_1 = nn.LayerNorm(embedding_dim)
+        self.attn1 = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embedding_dim, cond_dim=None, qkv_bias=False)
         
-        self.layer_norm2 = nn.LayerNorm(embedding_dim)
-        self.attn2 = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embedding_dim, cond_dim=cond_dim, use_bias=False)
+        self.layernorm_2 = nn.LayerNorm(embedding_dim)
+        self.attn2 = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embedding_dim, cond_dim=cond_dim, qkv_bias=False)
 
-        self.layer_norm3 = nn.LayerNorm(embedding_dim)
-        self.ff = nn.Sequential(
+        self.layernorm_3 = nn.LayerNorm(embedding_dim)
+                
+        self.ffn = nn.Sequential(
             GeGELU(embedding_dim, embedding_dim * 4),
             nn.Linear(embedding_dim * 4, embedding_dim))
         
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
-        x = self.attn1(self.layer_norm1(x), cond=cond) + x
+        x = self.attn1(self.layernorm_1(x)) + x
 
-        x = self.attn2(self.layer_norm2(x), cond=cond) + x
+        x = self.attn2(self.layernorm_2(x), cond=cond) + x
 
-        x = self.ff(self.layer_norm3(x)) + x
+        x = self.ffn(self.layernorm_3(x)) + x
         
         return x
         
@@ -153,7 +154,7 @@ class UNet_Upsample(nn.Module):
         return self.conv(self.upsample(x))
     
 class UNet_Encoder(nn.Module):
-    def __init__(self, in_channels: int=8, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
+    def __init__(self, in_channels: int=4, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
         super().__init__()
         ch = 320
         
@@ -166,15 +167,17 @@ class UNet_Encoder(nn.Module):
             down = nn.Module()
             in_channels = ch * in_ch_multiplier[i]
             out_channels = ch * ch_multiplier[i]
-            block = TimeStepSequential(
-                UNet_ResBlock(in_channels, out_channels, t_embed_dim), 
-                UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim),
-                UNet_ResBlock(out_channels, out_channels, t_embed_dim), 
-                UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim)
-            )
+            
             if i != len(ch_multiplier) - 1:
+                block = nn.Sequential(
+                    TimeStepSequential(UNet_ResBlock(in_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim)),
+                    TimeStepSequential(UNet_ResBlock(out_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim)))
                 downsample = UNet_Downsample(out_channels)
             else:
+                block = nn.Sequential(
+                TimeStepSequential(UNet_ResBlock(in_channels, out_channels, t_embed_dim)),
+                TimeStepSequential(UNet_ResBlock(out_channels, out_channels, t_embed_dim)))
+                
                 downsample = nn.Identity()
             
             down.block = block
@@ -187,9 +190,13 @@ class UNet_Encoder(nn.Module):
         x = self.conv_in(x)
         skip_connections = [x]
         for down in self.down:
-            x = down.block(x, t_embed, cond)
-            skip_connections.append(x)
+            for layer in down.block:
+                x = layer(x, t_embed, cond)
+                skip_connections.append(x)
+                
             x = down.downsample(x)
+            if not isinstance(down.downsample, nn.Identity):
+                skip_connections.append(x)
             
         return x, skip_connections
 
@@ -197,22 +204,29 @@ class UNet_Decoder(nn.Module):
     def __init__(self, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
         super().__init__()
         ch = 320
-        in_ch_multiplier = [1] + ch_multiplier
-        
+        decoder_channels = ch_multiplier + [4]
+        # [1280, 1280, 1280, 640, 320]
+        # (1280, 1280), (1280, 1280), (1280, 640), (640, 320)
         self.up = nn.ModuleList()
-        for i in reversed(range(4)):
+        for i in reversed(range(len(ch_multiplier))):
             up = nn.Module()
-            in_ch = in_ch_multiplier[i+1] * ch
-            out_ch = in_ch_multiplier[i] * ch
-            block = TimeStepSequential(
-                UNet_ResBlock(in_ch * 2, out_ch, t_embed_dim), 
-                UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim),
-                UNet_ResBlock(out_ch, out_ch, t_embed_dim), 
-                UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim),
-                UNet_ResBlock(out_ch, out_ch, t_embed_dim), 
-                UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)
-            )
-            
+            in_ch = decoder_channels[i + 1] * ch
+            out_ch = decoder_channels[i] * ch
+            if i > 0:
+                mid_ch = decoder_channels[i-1] * ch
+            else:
+                mid_ch = ch
+            if i == len(ch_multiplier) - 1:
+                block = nn.Sequential(
+                    TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim)),
+                    TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim)),
+                    TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim)))
+            else:
+                block = nn.Sequential(
+                    TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)), 
+                    TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
+                    TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
+                
             if i != 0:
                 upsample = UNet_Upsample(out_ch)
             else:
@@ -226,17 +240,18 @@ class UNet_Decoder(nn.Module):
     def forward(self, x: torch.Tensor, skip_connections: List[torch.Tensor], t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
         # x: (b, c, h, w)
         for up in self.up:
-            x = torch.cat([x, skip_connections.pop()], dim=1)
-            x = up.block(x, t_embed, cond)
+            for layer in up.block:
+                x = torch.cat([x, skip_connections.pop()], dim=1)
+                x = layer(x, t_embed, cond)
             x = up.upsample(x)
         return x
 
 class UNet(nn.Module):
-    def __init__(self, in_channels: int=8, out_channels: int=8, num_heads: int=8, t_embed_dim: int=320, cond_dim: int=768):
+    def __init__(self, in_channels: int=4, out_channels: int=4, num_heads: int=8, t_embed_dim: int=320, cond_dim: int=768):
         super().__init__()
         self.time_embedding = TimeEmbedding(t_embed_dim)
         self.encoder = UNet_Encoder(in_channels=in_channels, num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim)
-        self.bottle_neck = TimeStepSequential(
+        self.bottleneck = TimeStepSequential(
             UNet_ResBlock(1280, 1280, t_embed_dim * 4),
             UNet_TransformerEncoder(num_heads=8, embedding_dim=160, cond_dim=cond_dim),
             UNet_ResBlock(1280, 1280, t_embed_dim * 4)
@@ -251,9 +266,8 @@ class UNet(nn.Module):
 
         # t: int -> (1, 1280)
         t_embed = self.time_embedding(timestep)
-        
         x, skip_connections = self.encoder(x, t_embed, cond)
-        x = self.bottle_neck(x, t_embed, cond)
+        x = self.bottleneck(x, t_embed, cond)
         x = self.decoder(x, skip_connections, t_embed, cond)
         
         output = self.output(x)
