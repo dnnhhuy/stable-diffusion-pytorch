@@ -93,8 +93,7 @@ class UNet_ResBlock(nn.Module):
 
         # time: (1, t_embed_dim) -> (1, out_channels)
         time = F.silu(t_embed)
-        time = self.t_embed(t_embed)
-
+        time = self.t_embed(time)
         # (n, out_channels, h, w) + (1, out_channels, 1, 1) -> (n, out_channels, h, w)
         h = h + time[:, :, None, None]
 
@@ -116,9 +115,9 @@ class TimeEmbedding(nn.Module):
 
     def _get_time_embedding(self, timestep):
         half = self.t_embed_dim // 2
-        freqs = torch.pow(1000, -torch.arange(0, half, dtype=torch.float32)/half)
+        freqs = torch.pow(10000, -torch.arange(0, half, dtype=torch.float32)/half)
         x = torch.tensor([timestep], dtype=torch.float32, device=timestep.device)[None, :] * freqs[None, :].to(timestep.device)
-        return torch.cat([torch.cos(x), torch.sin(x)], dim=1)
+        return torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
             
     def forward(self, timestep: int) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)
@@ -138,7 +137,6 @@ class TimeStepSequential(nn.Sequential):
 class UNet_Downsample(nn.Module):
     def __init__(self, in_channels: int):
         super().__init__()
-
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -147,11 +145,12 @@ class UNet_Downsample(nn.Module):
 class UNet_Upsample(nn.Module):
     def __init__(self, in_channels: int):
         super().__init__()
-        self.upsample = nn.Upsample(scale_factor=2)
+        # self.upsample = nn.Upsample(scale_factor=2)
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(self.upsample(x))
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        return self.conv(x)
     
 class UNet_Encoder(nn.Module):
     def __init__(self, in_channels: int=4, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
@@ -269,7 +268,6 @@ class UNet(nn.Module):
         x, skip_connections = self.encoder(x, t_embed, cond)
         x = self.bottleneck(x, t_embed, cond)
         x = self.decoder(x, skip_connections, t_embed, cond)
-        
         output = self.output(x)
         return output
         

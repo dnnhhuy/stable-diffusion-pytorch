@@ -4,20 +4,21 @@ import numpy as np
 
 
 class DDIMSampler:
-    def __init__(self, noise_step: int=1000, beta_start: float=1e-4, beta_end: float=0.02,  use_cosine_schedule: bool=True):
-        self.betas = torch.linspace(beta_start, beta_end, noise_step, dtype=torch.float)
+    def __init__(self, generator: torch.Generator, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=True):
+        self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, dtype=torch.float32) ** 2
         self.alphas = 1 - self.betas
         self.alphas_hat = torch.cumprod(self.alphas, dim=0)
         self.noise_step = noise_step
+        self.generator = generator
 
         # Cosine-based noise schedule
         if use_cosine_schedule:
-            s = 1e-9
+            s = 0.008
             f_t = lambda t: np.cos((t/noise_step + s)/(1 + s) * np.pi/2) ** 2
             self.alphas_hat = f_t(torch.arange(0, noise_step + 1)) / f_t(0)
             self.betas = torch.clip(1 - self.alphas_hat[1:]/self.alphas_hat[:-1], 0, 0.999)
             self.alphas = 1 - self.betas
-            self.alphas_hat = self.alphas_hat[1:]
+            self.alphas_hat = torch.cumprod(self.alphas, dim=0)
 
         self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy())        
 
@@ -44,7 +45,7 @@ class DDIMSampler:
         # x_0: (b, c, h, w)
         t = timestep
         # (1,) -> (1, 1, 1, 1)
-        alpha_hat_t = self.alphas_hat[t, None, None, None].to(x_0.device)
+        alpha_hat_t = self.alphas_hat[t]
               
         noise = torch.randn_like(x_0, dtype=torch.float32, device=x_0.device)
         latent = torch.sqrt(alpha_hat_t) * x_0 + torch.sqrt(1 - alpha_hat_t) * noise
@@ -52,29 +53,20 @@ class DDIMSampler:
         return latent, noise
 
     # Denoising Diffusion Implicit Models
-    def reverse_process(self, x_t: torch.Tensor, timestep: int, model_output=torch.Tensor, coeff: float=0.0) -> torch.Tensor:
+    def reverse_process(self, x_t: torch.Tensor, timestep: int, model_output=torch.Tensor) -> torch.Tensor:
         t = timestep
         prev_t = self._get_prev_timestep(t)
 
-        alpha_t = self.alphas[t, None, None, None].to(x_t.device)
-        alpha_hat_t = self.alphas_hat[t, None, None, None].to(x_t.device)
+        alpha_t = self.alphas[t]
+        alpha_hat_t = self.alphas_hat[t]
         prev_alpha_hat_t = self.alphas_hat[prev_t] if prev_t >= 0 else torch.tensor(1.0)
-        prev_alpha_hat_t = prev_alpha_hat_t.to(x_t.device)
+        
         if t > 0:
-            variance = (1 - prev_alpha_hat_t) / (1 - alpha_hat_t) * (1 - alpha_t)
-            variance *= coeff
-            sigma_t = torch.sqrt(variance)
-            
-            mu = torch.sqrt(prev_alpha_hat_t) * (x_t - torch.sqrt(1 - prev_alpha_hat_t) * model_output) / torch.sqrt(alpha_hat_t) + torch.sqrt(1 - prev_alpha_hat_t - sigma_t.pow(2)) * model_output
-    
-            noise = torch.rand_like(x_t, dtype=torch.float32, device=x_t.device)
-            x_s = mu + sigma_t * noise
-            
+            mu = torch.sqrt(prev_alpha_hat_t) * (x_t - torch.sqrt(1 - alpha_hat_t) * model_output) / torch.sqrt(alpha_hat_t) + torch.sqrt(1 - prev_alpha_hat_t) * model_output
         else:
             mu = (x_t - torch.sqrt(1 - alpha_hat_t) * model_output) / torch.sqrt(alpha_hat_t)
-            x_s = mu
             
-        return x_s
+        return mu
             
         
         

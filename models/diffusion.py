@@ -9,9 +9,9 @@ from .vae import VAE
 from .unet import UNet
 from .cond_encoder import TextEncoder
 import sys
-
+import numpy as np
 sys.path.append("..")
-from utils.utils import denormalize_img
+from utils.utils import scale_img
 from PIL import Image
 
 IMG_HEIGHT = 512
@@ -26,9 +26,13 @@ class StableDiffusion:
             self.cond_encoder = TextEncoder()
         
         def _preprocess_image(self, img: Image):
-            transform = transforms.Compose([transforms.ToTensor(),
-                                           transforms.Resize((IMG_HEIGHT, IMG_WIDTH))])
-            return transform(img)
+            img = img.resize((IMG_WIDTH, IMG_HEIGHT))
+            img = np.array(img)
+            img = torch.tensor(input_image_tensor, dtype=torch.float32)
+            img = scale_img(input_image_tensor, (0, 255), (-1, 1))
+            img = img.unsqueeze(0)
+            img = img.permute(0, 3, 1, 2)
+            return img
         
         def generate(self, input_image: Image,
                      prompt: str,
@@ -40,16 +44,23 @@ class StableDiffusion:
                      inference_steps: int,
                      sampler: str,
                      use_cosine_schedule: bool,
+                     seed: int,
                      tokenizer=None) -> torch.Tensor:
             
             latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
-        
+
+            generator = torch.Generator(device=device)
+            if not seed:
+                generator.seed()
+            else:
+                generator.manual_seed(seed)
+
             if sampler == 'ddpm':
-                sampler = DDPMSampler(use_cosine_schedule=use_cosine_schedule)
+                sampler = DDPMSampler(generator, use_cosine_schedule=use_cosine_schedule)
                 # Set desired inference steps
                 sampler._set_inference_steps(inference_steps)
             elif sampler == 'ddim':
-                sampler = DDIMSampler(use_cosine_schedule=use_cosine_schedule)
+                sampler = DDIMSampler(generator, use_cosine_schedule=use_cosine_schedule)
                 sampler._set_inference_steps(inference_steps)
             else:
                 raise ValueError("Invalid sampler, available sampler is ddpm or ddim")
@@ -75,23 +86,23 @@ class StableDiffusion:
                     context_embedding = self.cond_encoder(cond_tokens)
                     
                 self.cond_encoder.to('cpu')
-        
                
                 
                 # Encoding Image
                 self.vae.to(device)
                 if input_image:
-                    transformed_img = self._preprocess_image(input_image).unsqueeze(0).to(device)
+                    transformed_img = self._preprocess_image(input_image).to(device)
+
+                    encoder_noise = torch.randn(latent_shape, generator=generator, device=device)
+                    latent_features, _, _ =  self.vae.encode(transformed_img, encoder_noise)
                     
-                    latent_features, _, _ =  self.vae.encode(transformed_img)
-        
                     sampler.set_strength(strength=strength)
                     latent_features, noise = sampler.forward_process(latent_features, sampler.timesteps[0])
                     
                 else:
-                    latent_features = torch.randn(latent_shape, dtype=torch.float32, device=device)
+                    latent_features = torch.randn(latent_shape, generator=generator, dtype=torch.float32, device=device)
                 self.vae.to('cpu')
-
+                
                 # Denoising
                 timesteps = tqdm(sampler.timesteps.to(device))
                 self.unet.to(device)
@@ -106,15 +117,16 @@ class StableDiffusion:
                     if do_cfg:
                         cond_output, uncond_output = pred_noise.chunk(2)
                         pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
-        
+                    
                     latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
+                
                 self.unet.to('cpu')
         
                 self.vae.to(device)
                 generated_imgs = self.vae.decode(latent_features)
                 self.vae.to('cpu')
         
-                generated_imgs = denormalize_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
+                generated_imgs = scale_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
                 generated_imgs = generated_imgs.permute(0, 2, 3, 1)
                 generated_imgs = generated_imgs.to('cpu', torch.uint8).numpy()
         

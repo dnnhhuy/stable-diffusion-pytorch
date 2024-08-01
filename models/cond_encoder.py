@@ -12,9 +12,9 @@ class TextEncoder(nn.Module):
         ])
         self.layernorm = nn.LayerNorm(embed_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
         ## TODO: Padding text before putting into embedding
-        
+        x = x.type(torch.long)
         x = self.text_embedding(x)
 
         for layer in self.encoder_layers:
@@ -49,15 +49,16 @@ class TransformerEncoder(nn.Module):
         self.dropout_2 = nn.Dropout(dropout, inplace=True)
         self.layernorm_2 = nn.LayerNorm(embed_dim)
 
-    def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
-        x = x.type(torch.long)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         skip_connection = x
+        x = self.layernorm_1(x)
         x = self.attn_1(x=x.type(torch.float), lookahead_mask=True)
         x = self.dropout_1(x)
-        x = self.layernorm_1(x + skip_connection)
+        x += skip_connection
 
         skip_connection = x
+        x = self.layernorm_2(x)
         x = self.ffn(x)
         x = self.dropout_2(x)
-        output = self.layernorm_2(x + skip_connection)
+        output = x + skip_connection
         return output

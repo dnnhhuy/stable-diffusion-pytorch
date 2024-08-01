@@ -45,7 +45,7 @@ class AttentionBlock(nn.Module):
         out = self.attn(x=x_norm)
 
         # (n, h * w, c) -> (n, c, h * w) -> (n, c, h, w)
-        out = out.transpose(1, 2).reshape(x.shape)
+        out = out.transpose(1, 2).view(x.shape)
         
         return out + x
         
@@ -172,13 +172,17 @@ class VAE(nn.Module):
         # z: (n, c, h, w)
         z = self.encoder(x)
         mean, log_variance = z.chunk(2, dim=1)
-        log_variance = torch.clamp(log_variance, -20, 30)
+        log_variance = torch.clamp(log_variance, -30, 20)
         variance = log_variance.exp()
         stdev = torch.sqrt(variance)
-        if noise:
-            return mean + stdev * noise, mean, stdev
+        
+        if noise is not None:
+            output = mean + stdev * noise
         else:
-            return mean + stdev * torch.randn_like(stdev), mean, stdev
+            output = mean + stdev * torch.randn_like(stdev)
+            
+        output *= 0.18215
+        return output, mean, stdev
         
 
     def decode(self, z: torch.Tensor):

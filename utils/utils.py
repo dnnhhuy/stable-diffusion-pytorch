@@ -1,5 +1,6 @@
 import torch
-def denormalize_img(x: torch.Tensor, old_range, new_range, clamp=False):
+
+def scale_img(x: torch.Tensor, old_range, new_range, clamp=False):
     old_min, old_max = old_range
     new_min, new_max = new_range
     x -= old_min

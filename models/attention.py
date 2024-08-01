@@ -18,7 +18,7 @@ class MultiheadSelfAttention(nn.Module):
         self.head_dim = embedding_dim // self.num_heads
         self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
 
-    def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=True) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=False) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
         # cond: (n, seq_len, dim)
         
@@ -38,7 +38,7 @@ class MultiheadSelfAttention(nn.Module):
 
        
 
-        # (n, num_heads, seq_len, head_dim) @ (n, num_heads, head_dim, seq_len) -> (n, seq_len, seq_len, seq_len)
+        # (n, num_heads, seq_len, head_dim) @ (n, num_heads, head_dim, seq_len) -> (n, num_heads, seq_len, seq_len)
         attn_weights = q @ k.transpose(-1, -2)
         if lookahead_mask:
             mask = torch.ones_like(attn_weights, dtype=torch.bool).triu(1)
