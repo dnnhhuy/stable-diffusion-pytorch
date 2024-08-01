@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
-
+import random
 
 class DDIMSampler:
     def __init__(self, generator: torch.Generator, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=True):
@@ -18,7 +18,7 @@ class DDIMSampler:
             self.alphas_hat = f_t(torch.arange(0, noise_step + 1)) / f_t(0)
             self.betas = torch.clip(1 - self.alphas_hat[1:]/self.alphas_hat[:-1], 0, 0.999)
             self.alphas = 1 - self.betas
-            self.alphas_hat = torch.cumprod(self.alphas, dim=0)
+            self.alphas_hat = self.alphas[1:]
 
         self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy())        
 
@@ -28,8 +28,8 @@ class DDIMSampler:
         self.timesteps = torch.from_numpy((np.arange(0, self.inference_steps) * step).round()[::-1].copy().astype(np.int64))
         
 
-    def _sample_timestep():
-        idx = torch.randint(start=1, end=self.timesteps[0])
+    def _sample_timestep(self):
+        idx = random.randint(0, self.timesteps[0])
         return self.timesteps[idx]
         
     def _get_prev_timestep(self, timestep: int):

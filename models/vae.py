@@ -147,7 +147,6 @@ class VAE_Decoder(nn.Module):
             
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch_size, channels, h, w)
-        x /= 0.18215
         x = self.conv_in(x)
 
         x = self.mid.res_block_1(x)
@@ -181,9 +180,10 @@ class VAE(nn.Module):
         else:
             output = mean + stdev * torch.randn_like(stdev)
             
-        output *= 0.18215
+        output = output * 0.18215
         return output, mean, stdev
         
 
     def decode(self, z: torch.Tensor):
+        z = z / 0.18215
         return self.decoder(z)   
