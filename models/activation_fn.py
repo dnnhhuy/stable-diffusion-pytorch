@@ -15,6 +15,5 @@ class GeGELU(nn.Module):
         self.proj = nn.Linear(in_channels, out_channels * 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.proj(x)
-        x, gate = x.chunk(2, dim=-1)
+        x, gate = self.proj(x).chunk(2, dim=-1)
         return x * F.gelu(gate)

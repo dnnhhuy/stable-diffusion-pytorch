@@ -26,17 +26,15 @@ class UNet_TransformerEncoder(nn.Module):
         x = self.conv_input(x)
 
         # (b, c, h, w) -> (b, c, h * w) -> (b, h * w, c)
-        x = x.view(b, c, -1)
-        x = x.transpose(-1, -2)
+        x = x.view(b, c, -1).transpose(-1, -2)
 
         x = self.transformer_block(x=x, cond=cond)
 
-        x = x.transpose(-1, -2)
-        x = x.view(b, c, h, w)
+        x = x.transpose(-1, -2).view(b, c, h, w)
 
-        x = self.conv_output(x) + x_in
+        x = self.conv_output(x)
 
-        return x
+        return x + x_in
         
 class UNet_AttentionBlock(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
@@ -61,18 +59,11 @@ class UNet_AttentionBlock(nn.Module):
         
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+        x = self.attn1(self.layernorm_1(x)) + x
 
-        residual_x = x
-        x = self.layernorm_1(x)
-        x = self.attn1(x) + residual_x
+        x = self.attn2(self.layernorm_2(x), cond=cond) + x
 
-        residual_x = x
-        x = self.layernorm_2(x)
-        x = self.attn2(x, cond=cond) + residual_x
-
-        residual_x = x
-        x = self.layernorm_3(x)
-        x = self.ffn(x) + residual_x
+        x = self.ffn(self.layernorm_3(x)) + x
         
         return x
         
@@ -194,6 +185,7 @@ class UNet_Encoder(nn.Module):
             self.down.append(down)
             
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
+        
         x = self.conv_in(x)
         skip_connections = [x]
         for down in self.down:
@@ -270,13 +262,12 @@ class UNet(nn.Module):
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
 
     def forward(self, x: torch.Tensor, timestep: int, cond: torch.Tensor) -> torch.Tensor:
+
         # t: int -> (1, 1280)
         t_embed = self.time_embedding(timestep)
         x, skip_connections = self.encoder(x, t_embed, cond)
-        
         x = self.bottleneck(x, t_embed, cond)
         x = self.decoder(x, skip_connections, t_embed, cond)
-        
-        x = self.output(x)
-        return x
+        output = self.output(x)
+        return output
         

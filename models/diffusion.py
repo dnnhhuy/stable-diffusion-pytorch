@@ -13,11 +13,7 @@ import numpy as np
 sys.path.append("..")
 from utils.utils import scale_img
 from PIL import Image
-
-IMG_HEIGHT = 64
-IMG_WIDTH = 64
-LATENT_HEIGHT = IMG_HEIGHT // 8
-LATENT_WIDTH = IMG_WIDTH // 8
+from typing import Tuple
 
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
@@ -31,8 +27,8 @@ class StableDiffusion(nn.Module):
         else:
             raise ValueError('Only support txt2img or class2img model types')
     
-    def _preprocess_image(self, img: Image):
-        img = img.resize((IMG_WIDTH, IMG_HEIGHT))
+    def _preprocess_image(self, img: Image, img_size: Tuple[int, int]):
+        img = img.resize(img_size)
         img = np.array(img)
         img = torch.tensor(img, dtype=torch.float32)
         img = scale_img(img, (0, 255), (-1, 1))
@@ -41,6 +37,7 @@ class StableDiffusion(nn.Module):
         return img
     
     def generate(self, input_image: Image,
+                 img_size: Tuple[int, int],
                  prompt: str,
                  uncond_promt: str,
                  do_cfg: bool,
@@ -52,6 +49,9 @@ class StableDiffusion(nn.Module):
                  use_cosine_schedule: bool,
                  seed: int,
                  tokenizer=None) -> torch.Tensor:
+
+        img_h, img_w = img_size
+        LATENT_HEIGHT, LATENT_WIDTH = img_h // 8, img_w // 8
         
         latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
 
@@ -97,7 +97,7 @@ class StableDiffusion(nn.Module):
             # Encoding Image
             self.vae.to(device)
             if input_image:
-                transformed_img = self._preprocess_image(input_image).to(device)
+                transformed_img = self._preprocess_image(input_image, img_size).to(device)
 
                 encoder_noise = torch.randn(latent_shape, generator=generator, device=device)
                 latent_features, _, _ =  self.vae.encode(transformed_img, encoder_noise)
