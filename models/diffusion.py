@@ -147,10 +147,14 @@ class StableDiffusion(nn.Module):
 
         generator = torch.Generator(device=image.device)
         sampler = DDPMSampler(generator)
-            
-        prompt_encoding = self.cond_encoder(label)
 
+        self.cond_encoder.to(device)
+        prompt_encoding = self.cond_encoder(label)
+        self.cond_encoder.to('cpu')
+
+        self.vae.to(device)
         latent_features, mean, stdev = self.vae.encode(image)
+        self.vae.to('cpu')
 
         # Actual noise
         with torch.no_grad():
@@ -159,11 +163,15 @@ class StableDiffusion(nn.Module):
             x_t, actual_noise = sampler.forward_process(latent_features, timestep)
         
         # Predict noise
+        self.unet.to(device)
         pred_noise = self.unet(x_t, timestep, prompt_encoding)
+        self.unet.to('cpu')
 
         unet_loss = loss_fn(pred_noise, actual_noise)
-        
+
+        self.vae.to(device)
         pred_image = self.vae.decode(pred_noise)
+        self.vae.to('cpu')
 
         vae_loss = loss_fn(pred_image, image) + 1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
         
