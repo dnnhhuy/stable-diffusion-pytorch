@@ -32,7 +32,6 @@ class AttentionBlock(nn.Module):
         super().__init__()
         self.groupnorm = nn.GroupNorm(num_groups=32, num_channels=in_channels)
         self.attn = MultiheadSelfAttention(num_heads=1, embedding_dim=in_channels)
-
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (n, c, h, w)
@@ -46,7 +45,6 @@ class AttentionBlock(nn.Module):
 
         # (n, h * w, c) -> (n, c, h * w) -> (n, c, h, w)
         out = out.transpose(1, 2).view(x.shape)
-        
         return out + x
         
 class VAE_Encoder(nn.Module):
@@ -88,6 +86,7 @@ class VAE_Encoder(nn.Module):
             nn.SiLU(),
             nn.Conv2d(curr_channels, 2*z_channels, kernel_size=3, stride=1, padding=1),
             nn.Conv2d(2*z_channels, 2*z_channels, kernel_size=1, stride=1, padding=0))
+        
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv_in(x)
@@ -147,7 +146,7 @@ class VAE_Decoder(nn.Module):
             
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch_size, channels, h, w)
-        x = x / 0.18215
+        
         x = self.conv_in(x)
 
         x = self.mid.res_block_1(x)
@@ -157,9 +156,9 @@ class VAE_Decoder(nn.Module):
         for up in self.up:
             x = up.block(x)
             x = up.upsample(x)
-
-        out = self.out(x)
-        return out
+        
+        x = self.out(x)
+        return x
         
         
 class VAE(nn.Module):
@@ -171,6 +170,7 @@ class VAE(nn.Module):
     def encode(self, x: torch.Tensor, noise=None) -> torch.Tensor:
         # z: (n, c, h, w)
         z = self.encoder(x)
+        
         mean, log_variance = z.chunk(2, dim=1)
         log_variance = torch.clamp(log_variance, -30, 20)
         variance = log_variance.exp()
@@ -180,10 +180,12 @@ class VAE(nn.Module):
             output = mean + stdev * noise
         else:
             output = mean + stdev * torch.randn_like(stdev)
-            
         output = output * 0.18215
         return output, mean, stdev
         
 
     def decode(self, z: torch.Tensor):
-        return self.decoder(z)   
+        z = z / 0.18215
+
+        out = self.decoder(z) 
+        return out

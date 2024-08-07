@@ -4,10 +4,15 @@ import math
 import logging
 from typing import Optional
 
+
+
 class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True):
         super().__init__()
         
+        self.quant_attn = torch.ao.quantization.QuantStub()
+        
+        self.dequant = torch.ao.quantization.DeQuantStub()
         if not cond_dim:
             cond_dim = embedding_dim
             
@@ -39,23 +44,28 @@ class MultiheadSelfAttention(nn.Module):
         k = k.view(*k.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         v = v.view(*v.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
 
+        # Dequantize q, k, v
+        q = self.dequant(q)
+        k = self.dequant(k)
+        v = self.dequant(v)
        
 
         # (n, num_heads, seq_len, head_dim) @ (n, num_heads, head_dim, seq_len) -> (n, num_heads, seq_len, seq_len)
         attn_weights = q @ k.transpose(-1, -2)
+
         if lookahead_mask:
-            mask = torch.ones_like(attn_weights, dtype=torch.bool).triu(1)
+            mask = torch.ones(attn_weights.shape, dtype=torch.bool).triu(1)
             attn_weights.masked_fill_(mask, -torch.inf)
-            
+
         attn_weights = attn_weights / math.sqrt(self.head_dim)
         attn_weights = torch.softmax(attn_weights, dim=-1)
 
         # (n, num_heads, seq_len, seq_len) @ (n, num_heads, seq_len, head_dim) -> (n, num_heads, seq_len, head_dim)
         attn_weights = attn_weights @ v
-
+        
         # (n, num_heads, seq_len, head_dim) -> (n, seq_len, num_heads, head_dim) -> (n, seq_len, embedding_dim)
         attn_weights = attn_weights.transpose(1, 2).reshape((batch_size, seq_len, embedding_dim))
 
+        attn_weights = self.quant_attn(attn_weights)
         out = self.proj_out(attn_weights)
-
         return out

@@ -5,6 +5,7 @@ from .attention import MultiheadSelfAttention
 from .activation_fn import GeGELU
 from typing import Optional, List
 
+        
 class UNet_TransformerEncoder(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
         super().__init__()
@@ -16,10 +17,12 @@ class UNet_TransformerEncoder(nn.Module):
 
         self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
 
+        self.add = torch.nn.quantized.FloatFunctional()
+        
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None) -> torch.Tensor:
         # x: (b, c, h, w)
         b, c, h, w = x.shape
-
+        
         x_in = x
 
         x = self.groupnorm(x)
@@ -27,14 +30,15 @@ class UNet_TransformerEncoder(nn.Module):
 
         # (b, c, h, w) -> (b, c, h * w) -> (b, h * w, c)
         x = x.view(b, c, -1).transpose(-1, -2)
-
         x = self.transformer_block(x=x, cond=cond)
 
         x = x.transpose(-1, -2).view(b, c, h, w)
 
         x = self.conv_output(x)
 
-        return x + x_in
+        x = self.add.add(x, x_in)
+        
+        return x
         
 class UNet_AttentionBlock(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
@@ -56,55 +60,94 @@ class UNet_AttentionBlock(nn.Module):
         self.ffn = nn.Sequential(
             GeGELU(embedding_dim, embedding_dim * 4),
             nn.Linear(embedding_dim * 4, embedding_dim))
+
+        self.add_1 = torch.nn.quantized.FloatFunctional()
+        self.add_2 = torch.nn.quantized.FloatFunctional()
+        self.add_3 = torch.nn.quantized.FloatFunctional()
         
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
-        x = self.attn1(self.layernorm_1(x)) + x
+        residual_x = x
+        x = self.layernorm_1(x)
+        x = self.attn1(x)
+        x = self.add_1.add(x, residual_x)
+        
+        residual_x = x
+        x = self.attn2(self.layernorm_2(x), cond=cond)
+        x = self.add_2.add(x, residual_x)
+        
+        residual_x = x
+        x = self.ffn(self.layernorm_3(x))
 
-        x = self.attn2(self.layernorm_2(x), cond=cond) + x
-
-        x = self.ffn(self.layernorm_3(x)) + x
+        x = self.add_3.add(x, residual_x)
         
         return x
         
 
 class UNet_ResBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, t_embed_dim: int):
-            super().__init__()
-            
-            self.groupnorm_1 = nn.GroupNorm(num_groups=32, num_channels=in_channels)
-            self.conv_1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
+        super().__init__()
+        
+        self.groupnorm_1 = nn.GroupNorm(num_groups=32, num_channels=in_channels)
+        self.conv_1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
 
-            self.groupnorm_2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
-            self.conv_2 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
-            
-            self.t_embed = nn.Linear(t_embed_dim, out_channels)
-            
-            if in_channels == out_channels:
-                self.proj_input = nn.Identity()
-            else:
-                self.proj_input = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, padding=0)
+        self.groupnorm_2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
+        self.conv_2 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
+        
+        self.t_embed = nn.Linear(t_embed_dim, out_channels)
+        
+        if in_channels == out_channels:
+            self.proj_input = nn.Identity()
+        else:
+            self.proj_input = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, padding=0)
+
+        self.silu_1 = nn.SiLU()
+        self.silu_2 = nn.SiLU()
+        self.silu_t_embed = nn.SiLU()
+
+        self.quant_1 = torch.ao.quantization.QuantStub()
+        self.quant_t = torch.ao.quantization.QuantStub()
+        self.quant_2 = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+
+        self.add_1 = torch.nn.quantized.FloatFunctional()
+        self.add_2 = torch.nn.quantized.FloatFunctional()
 
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor) -> torch.Tensor:
         # x: (n, c, h, w)
         h = self.groupnorm_1(x)
-        h = F.silu(h)
+        h = self.dequant(h)
+        h = self.silu_1(h)
+        h = self.quant_1(h)
         h = self.conv_1(h)
-
+        
         # time: (1, t_embed_dim) -> (1, out_channels)
-        time = F.silu(t_embed)
+        t_embed = self.dequant(t_embed)
+        time = self.silu_t_embed(t_embed)
+        time = self.quant_t(time)
         time = self.t_embed(time)
         # (n, out_channels, h, w) + (1, out_channels, 1, 1) -> (n, out_channels, h, w)
-        h = h + time[:, :, None, None]
+        h = self.add_2.add(h, time[:, :, None, None])
 
         h = self.groupnorm_2(h)
-        h = F.silu(h)
+        h = self.dequant(h)
+        h = self.silu_2(h)
+        h = self.quant_2(h)
         h = self.conv_2(h)
-        return h + self.proj_input(x)
+
+
+        x = self.proj_input(x)
+        
+        h = self.add_2.add(h, x)
+        return h
 
 class TimeEmbedding(nn.Module):
     def __init__(self, t_embed_dim: int=320):
         super().__init__()
+        self.quant = torch.ao.quantization.QuantStub()
+        self.quant_timestep = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+        
         self.t_embed_dim = t_embed_dim
         self.ffn = nn.Sequential(
             # (1, 320) -> (1, 1280)
@@ -121,7 +164,18 @@ class TimeEmbedding(nn.Module):
             
     def forward(self, timestep: int) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)
-        return self.ffn(t_embed)
+        t_embed = self.quant_timestep(t_embed)
+        for layer in self.ffn:
+            if isinstance(layer, nn.SiLU):
+                t_embed = self.dequant(t_embed)
+                t_embed = layer(t_embed)
+                t_embed = self.quant(t_embed)
+            else:
+                t_embed = layer(t_embed)
+
+        t_embed = self.dequant(t_embed)
+                
+        return t_embed
 
 class TimeStepSequential(nn.Sequential):
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond=None) -> torch.Tensor:
@@ -183,8 +237,13 @@ class UNet_Encoder(nn.Module):
             down.downsample = downsample
             
             self.down.append(down)
+        self.quant_input = torch.ao.quantization.QuantStub()
+        self.quant_cond = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
             
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
+        x = self.quant_input(x)
+        cond = self.quant_cond(cond)
         
         x = self.conv_in(x)
         skip_connections = [x]
@@ -196,7 +255,7 @@ class UNet_Encoder(nn.Module):
             x = down.downsample(x)
             if not isinstance(down.downsample, nn.Identity):
                 skip_connections.append(x)
-            
+        x = self.dequant(x)
         return x, skip_connections
 
 class UNet_Decoder(nn.Module):
@@ -236,18 +295,26 @@ class UNet_Decoder(nn.Module):
 
             self.up.append(up)
 
+            self.quant = torch.ao.quantization.QuantStub()
+            self.quant_cond = torch.ao.quantization.QuantStub()
+            self.dequant = torch.ao.quantization.DeQuantStub()
+
     def forward(self, x: torch.Tensor, skip_connections: List[torch.Tensor], t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
         # x: (b, c, h, w)
+        x = self.quant(x)
+        cond = self.quant_cond(cond)
         for up in self.up:
             for layer in up.block:
                 x = torch.cat([x, skip_connections.pop()], dim=1)
                 x = layer(x, t_embed, cond)
             x = up.upsample(x)
+        x = self.dequant(x)
         return x
 
 class UNet(nn.Module):
     def __init__(self, in_channels: int=4, out_channels: int=4, num_heads: int=8, t_embed_dim: int=320, cond_dim: int=768):
         super().__init__()
+        
         self.time_embedding = TimeEmbedding(t_embed_dim)
         self.encoder = UNet_Encoder(in_channels=in_channels, num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim)
         self.bottleneck = TimeStepSequential(
@@ -260,14 +327,39 @@ class UNet(nn.Module):
             nn.GroupNorm(32, 320),
             nn.SiLU(),
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
+        
+        self.quant_silu = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+        self.quant_bottleneck = torch.ao.quantization.QuantStub()
+        self.quant_t = torch.ao.quantization.QuantStub()
+        self.quant_cond = torch.ao.quantization.QuantStub()
+        self.quant_out = torch.ao.quantization.QuantStub()
 
     def forward(self, x: torch.Tensor, timestep: int, cond: torch.Tensor) -> torch.Tensor:
-
         # t: int -> (1, 1280)
         t_embed = self.time_embedding(timestep)
+
         x, skip_connections = self.encoder(x, t_embed, cond)
+        
+        x = self.quant_bottleneck(x)
+        t_embed = self.quant_t(t_embed)
+        cond = self.quant_cond(cond)
         x = self.bottleneck(x, t_embed, cond)
+        x = self.dequant(x)
+        t_embed = self.dequant(t_embed)
+        cond = self.dequant(cond)
+        
         x = self.decoder(x, skip_connections, t_embed, cond)
-        output = self.output(x)
+
+        x = self.quant_out(x)
+        output = x
+        for layer in self.output:
+            if isinstance(layer, nn.SiLU):
+                output = self.dequant(output)
+                output = layer(output)
+                output = self.quant_silu(output)
+            else:
+                output = layer(output)
+        output = self.dequant(output)
         return output
         

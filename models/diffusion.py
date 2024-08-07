@@ -15,6 +15,7 @@ from utils.utils import scale_img
 from PIL import Image
 from typing import Tuple
 
+
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
@@ -26,6 +27,7 @@ class StableDiffusion(nn.Module):
             self.cond_encoder = ClassEncoder(num_classes=num_classes)
         else:
             raise ValueError('Only support txt2img or class2img model types')
+        self.dequant = torch.ao.quantization.DeQuantStub()
     
     def _preprocess_image(self, img: Image, img_size: Tuple[int, int]):
         img = img.resize(img_size)
@@ -90,7 +92,7 @@ class StableDiffusion(nn.Module):
             else:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
                 context_embedding = self.cond_encoder(cond_tokens)
-                
+            
             self.cond_encoder.to('cpu')
            
             
@@ -116,7 +118,6 @@ class StableDiffusion(nn.Module):
                 model_input = latent_features
                 if do_cfg:
                     model_input = model_input.repeat(2, 1, 1, 1)
-    
                 pred_noise = self.unet(model_input, timestep, context_embedding)
                 
                 if do_cfg:

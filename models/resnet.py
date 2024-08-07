@@ -18,14 +18,33 @@ class ResidualBlock(nn.Module):
         else:
             self.proj_input = nn.Identity()
 
+        self.silu_1 = nn.SiLU()
+        self.silu_2 = nn.SiLU()
+
+        self.add = torch.nn.quantized.FloatFunctional()
+
+        self.dequant = torch.ao.quantization.DeQuantStub()
+        self.quant_1 = torch.ao.quantization.QuantStub()
+        self.quant_2 = torch.ao.quantization.QuantStub()
+
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_norm = self.groupnorm_1(x)
-        out = F.silu(x_norm)
+        x_norm = self.dequant(x_norm)
+        out = self.silu_1(x_norm)
+        out = self.quant_1(out)
+        
         out = self.conv_1(out)
 
         out = self.groupnorm_2(out)
-        out = F.silu(out)
+        out = self.dequant(out)
+        out = self.silu_2(out)
+        out = self.quant_2(out)
+        
         out = self.dropout(out)
         out = self.conv_2(out)
-        return out + self.proj_input(x)
+
+        x = self.proj_input(x)
+        out = self.add.add(out, x)
+        return out
         
