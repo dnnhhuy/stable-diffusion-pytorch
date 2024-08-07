@@ -156,7 +156,6 @@ class VAE_Decoder(nn.Module):
         for up in self.up:
             x = up.block(x)
             x = up.upsample(x)
-        
         x = self.out(x)
         return x
         
@@ -186,6 +185,5 @@ class VAE(nn.Module):
 
     def decode(self, z: torch.Tensor):
         z = z / 0.18215
-
         out = self.decoder(z) 
         return out
