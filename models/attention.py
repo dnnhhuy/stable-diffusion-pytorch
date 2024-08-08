@@ -49,7 +49,6 @@ class MultiheadSelfAttention(nn.Module):
         k = self.dequant(k)
         v = self.dequant(v)
        
-
         # (n, num_heads, seq_len, head_dim) @ (n, num_heads, head_dim, seq_len) -> (n, num_heads, seq_len, seq_len)
         attn_weights = q @ k.transpose(-1, -2)
 

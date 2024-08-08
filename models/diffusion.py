@@ -19,15 +19,14 @@ from typing import Tuple
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
-        self.vae = VAE()
-        self.unet = UNet()
+        # self.vae = VAE()
+        self.unet = UNet(in_channels=3, out_channels=3)
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
         elif model_type == 'class2img':
             self.cond_encoder = ClassEncoder(num_classes=num_classes)
         else:
             raise ValueError('Only support txt2img or class2img model types')
-        self.dequant = torch.ao.quantization.DeQuantStub()
     
     def _preprocess_image(self, img: Image, img_size: Tuple[int, int]):
         img = img.resize(img_size)
@@ -150,22 +149,24 @@ class StableDiffusion(nn.Module):
 
         prompt_encoding = self.cond_encoder(label)
 
-        latent_features, mean, stdev = self.vae.encode(image)
+        # latent_features, mean, stdev = self.vae.encode(image)
+        
         # Actual noise
         with torch.no_grad():
             timestep = sampler._sample_timestep().int().to(device)
             
-            x_t, actual_noise = sampler.forward_process(latent_features, timestep)
-        
+            # x_t, actual_noise = sampler.forward_process(latent_features, timestep)
+            x_t, actual_noise = sampler.forward_process(image, timestep)
+
         # Predict noise
         pred_noise = self.unet(x_t, timestep, prompt_encoding)
 
         unet_loss = loss_fn(pred_noise, actual_noise)
 
-        pred_image = self.vae.decode(pred_noise)
+        # pred_image = self.vae.decode(pred_noise)
 
-        vae_loss = loss_fn(pred_image, image) + 1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
+        # vae_loss = loss_fn(pred_image, image) + 1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
         
-        loss = unet_loss + vae_loss
+        loss = unet_loss
         
         return loss

@@ -19,7 +19,6 @@ def train_step(model: nn.Module,
                use_ema: bool=False):
     
     train_loss = 0.
-    
     model.train()
     
     for i, (imgs, labels) in enumerate(tqdm(train_dataloader)):
@@ -38,6 +37,7 @@ def train_step(model: nn.Module,
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
         if ema_model is not None:
             ema_model.step(model)
     
@@ -54,7 +54,7 @@ def test_step(model: nn.Module,
 
     model.eval()
     
-    with torch.inference_mode():
+    with torch.no_grad():
         for i, (imgs, labels) in enumerate(tqdm(test_dataloader)):
             imgs = imgs.to(device)
             labels = labels.argmax(dim=1) + 1
@@ -75,6 +75,8 @@ def train(model: nn.Module,
           device: torch.device, 
           optimizer: torch.optim.Optimizer,
           loss_fn: nn.Module,
+          save_dir: str,
+          checkpoint_dir: str,
          use_ema: bool=False):
     
     results = {'train_loss': [],
@@ -111,8 +113,11 @@ def train(model: nn.Module,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': train_loss,
-            'test_loss': test_loss}, f'./checkpoints/{'stable_duffusion'}_epoch_{epoch}.ckpt')
+            'test_loss': test_loss}, os.path.join(checkpoint_path, f"stable_duffusion_epoch_{epoch}.ckpt"))
 
+    print("Saving model...")
+    torch.save(model.state_dict(), os.path.join(save_path, "stable_diffusion_final.ckpt"))
+    print("Model saved at: ", os.path.join(save_path, "stable_diffusion_final.ckpt"))
     return results
 
 NUM_WORKERS = os.cpu_count()
@@ -123,6 +128,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', default='data/sprites', type=str, help='Data directory')
     parser.add_argument('--batch_size', default=32, type=int, help="Batch size")
     parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
+    parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
+    parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
     
     
     args = parser.parse_args()
@@ -136,5 +143,5 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(params=model.parameters(), lr=0.001)
     loss_fn = nn.MSELoss()
     
-    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, loss_fn=loss_fn)
+    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir)
     
