@@ -21,17 +21,15 @@ def train_step(model: nn.Module,
     train_loss = 0.
     model.train()
     
-    for i, (imgs, labels) in enumerate(tqdm(train_dataloader)):
+    for i, (imgs, labels) in enumerate(tqdm(train_dataloader, position=0, leave=True)):
         imgs = imgs.to(device)
         
-        labels = labels.argmax(dim=1) + 1
         # CFG: Unconditional pass
         if np.random.random() < uncondition_prob:
            labels = torch.zeros(labels.shape)
+        labels = labels.type(torch.float32).to(device)
             
-        labels = labels.to(device)
-            
-        loss = model(imgs, labels.int(), loss_fn=loss_fn)
+        loss = model(imgs, labels, loss_fn=loss_fn)
         train_loss += loss.item()
         
         optimizer.zero_grad()
@@ -40,6 +38,9 @@ def train_step(model: nn.Module,
         
         if ema_model is not None:
             ema_model.step(model)
+
+        if i % 100 == 0:
+            print(f"\nStep [{i}/{len(train_dataloader)}] | Loss: {loss.item():.2f}")
     
     train_loss /= len(train_dataloader)
     return train_loss
@@ -55,7 +56,7 @@ def test_step(model: nn.Module,
     model.eval()
     
     with torch.no_grad():
-        for i, (imgs, labels) in enumerate(tqdm(test_dataloader)):
+        for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True), leave=True):
             imgs = imgs.to(device)
             labels = labels.argmax(dim=1) + 1
             labels = labels.to(device)
@@ -100,7 +101,7 @@ def train(model: nn.Module,
                               device=device,
                              loss_fn=loss_fn)
 
-        print(f"Epoch {epoch+1} | "
+        print(f"\nEpoch {epoch+1} | "
         f"Train loss: {train_loss} | "
         f"Test loss: {test_loss}")
 
@@ -113,11 +114,11 @@ def train(model: nn.Module,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': train_loss,
-            'test_loss': test_loss}, os.path.join(checkpoint_path, f"stable_duffusion_epoch_{epoch}.ckpt"))
+            'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_duffusion_epoch_{epoch}.ckpt"))
 
     print("Saving model...")
-    torch.save(model.state_dict(), os.path.join(save_path, "stable_diffusion_final.ckpt"))
-    print("Model saved at: ", os.path.join(save_path, "stable_diffusion_final.ckpt"))
+    torch.save(model.state_dict(), os.path.join(save_dir, "stable_diffusion_final.ckpt"))
+    print("Model saved at: ", os.path.join(save_dir, "stable_diffusion_final.ckpt"))
     return results
 
 NUM_WORKERS = os.cpu_count()
@@ -135,12 +136,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     transform = transforms.Compose([transforms.ToTensor(),
-                                   transforms.Resize((64, 64))])
+                                   transforms.Resize((16, 16))])
 
     train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
     model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
     
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.001)
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=0.0001)
     loss_fn = nn.MSELoss()
     
     train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir)

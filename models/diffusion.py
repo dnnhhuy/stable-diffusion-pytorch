@@ -7,7 +7,7 @@ from .ddpm import DDPMSampler
 from .ddim import DDIMSampler
 from .vae import VAE
 from .unet import UNet
-from .cond_encoder import TextEncoder, ClassEncoder
+from .cond_encoder import TextEncoder
 import sys
 import numpy as np
 sys.path.append("..")
@@ -19,12 +19,14 @@ from typing import Tuple
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
-        # self.vae = VAE()
-        self.unet = UNet(in_channels=3, out_channels=3)
+        self.vae = VAE()
+        
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
+            self.unet = UNet(in_channels=4, out_channels=4, cond_dim=768)
         elif model_type == 'class2img':
-            self.cond_encoder = ClassEncoder(num_classes=num_classes)
+            self.cond_encoder = None
+            self.unet = UNet(in_channels=4, out_channels=4, cond_dim=num_classes)
         else:
             raise ValueError('Only support txt2img or class2img model types')
     
@@ -147,26 +149,34 @@ class StableDiffusion(nn.Module):
         generator = torch.Generator(device=image.device)
         sampler = DDPMSampler(generator)
 
-        prompt_encoding = self.cond_encoder(label)
+        if self.cond_encoder:
+            prompt_encoding = self.cond_encoder(label)
+        else:
+            prompt_encoding = label
 
-        # latent_features, mean, stdev = self.vae.encode(image)
+        latent_features, mean, stdev = self.vae.encode(image)
         
         # Actual noise
         with torch.no_grad():
             timestep = sampler._sample_timestep().int().to(device)
             
-            # x_t, actual_noise = sampler.forward_process(latent_features, timestep)
-            x_t, actual_noise = sampler.forward_process(image, timestep)
+            x_t, actual_noise = sampler.forward_process(latent_features, timestep)
+            # x_t, actual_noise = sampler.forward_process(image, timestep)
 
         # Predict noise
         pred_noise = self.unet(x_t, timestep, prompt_encoding)
 
         unet_loss = loss_fn(pred_noise, actual_noise)
 
-        # pred_image = self.vae.decode(pred_noise)
-
-        # vae_loss = loss_fn(pred_image, image) + 1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
+        pred_image = self.vae.decode(pred_noise)
         
-        loss = unet_loss
+        # VAE Loss
+        # Reconstruction Loss
+        reconstruct_loss = loss_fn(pred_image, image)
+        kl_divergence = -1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
+        vae_loss =  reconstruct_loss + kl_divergence
+
+        # Total Loss
+        loss = unet_loss + vae_loss
         
         return loss

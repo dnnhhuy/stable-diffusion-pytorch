@@ -19,6 +19,7 @@ class MultiheadSelfAttention(nn.Module):
         self.proj_q = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
         self.proj_k = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
         self.proj_v = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        
         self.num_heads = num_heads
         self.head_dim = embedding_dim // self.num_heads
         self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)

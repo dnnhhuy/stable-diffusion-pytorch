@@ -7,7 +7,7 @@ from typing import Optional, List
 
         
 class UNet_TransformerEncoder(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int):
         super().__init__()
         channels = embedding_dim * num_heads
         self.groupnorm = nn.GroupNorm(32, channels)
@@ -41,7 +41,7 @@ class UNet_TransformerEncoder(nn.Module):
         return x
         
 class UNet_AttentionBlock(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=768):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int):
         super().__init__()
         
         if embedding_dim % num_heads:
@@ -284,8 +284,9 @@ class UNet_Decoder(nn.Module):
                     TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)), 
                     TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
                     TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
-                
-            if i != 0:
+
+            if i == 1:
+            # if i != 0:
                 upsample = UNet_Upsample(out_ch)
             else:
                 upsample = nn.Identity()
@@ -305,9 +306,11 @@ class UNet_Decoder(nn.Module):
         cond = self.quant_cond(cond)
         for up in self.up:
             for layer in up.block:
-                x = torch.cat([x, skip_connections.pop()], dim=1)
+                tmp = skip_connections.pop()
+                x = torch.cat([x, tmp], dim=1)
                 x = layer(x, t_embed, cond)
             x = up.upsample(x)
+            
         x = self.dequant(x)
         return x
 
