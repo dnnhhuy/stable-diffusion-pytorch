@@ -56,10 +56,10 @@ def test_step(model: nn.Module,
     model.eval()
     
     with torch.no_grad():
-        for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True), leave=True):
+        for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True)):
             imgs = imgs.to(device)
-            labels = labels.argmax(dim=1) + 1
-            labels = labels.to(device)
+
+            labels = labels.type(torch.float32).to(device)
             
             loss = model(imgs, labels, loss_fn=loss_fn)
 
@@ -75,9 +75,11 @@ def train(model: nn.Module,
           epochs: int, 
           device: torch.device, 
           optimizer: torch.optim.Optimizer,
+          lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
           loss_fn: nn.Module,
           save_dir: str,
           checkpoint_dir: str,
+          start_epoch: int=0,
          use_ema: bool=False):
     
     results = {'train_loss': [],
@@ -87,7 +89,7 @@ def train(model: nn.Module,
     if use_ema:
         ema_model = EMA(model=model, beta=0.995)
     
-    for epoch in tqdm(range(epochs)):
+    for epoch in tqdm(range(start_epoch, epochs)):
         train_loss = train_step(model=model,
                                 ema_model=ema_model,
                                 train_dataloader=train_dataloader, 
@@ -101,20 +103,21 @@ def train(model: nn.Module,
                               device=device,
                              loss_fn=loss_fn)
 
-        print(f"\nEpoch {epoch+1} | "
+        lr_scheduler.step(test_loss)
+
+        print(f"\nEpoch {epoch} | "
         f"Train loss: {train_loss} | "
         f"Test loss: {test_loss}")
 
         results['train_loss'].append(train_loss)
         results['test_loss'].append(test_loss)
         
-        if epoch % 5 == 0:
-            torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'train_loss': train_loss,
-            'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_duffusion_epoch_{epoch}.ckpt"))
+        torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'train_loss': train_loss,
+        'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_duffusion_epoch_{epoch}.ckpt"))
 
     print("Saving model...")
     torch.save(model.state_dict(), os.path.join(save_dir, "stable_diffusion_final.ckpt"))
@@ -131,6 +134,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
     parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
+    parser.add_argument('--pretrained_path', default='./checkpoint', help='')
+
     
     
     args = parser.parse_args()
@@ -139,10 +144,20 @@ if __name__ == '__main__':
                                    transforms.Resize((16, 16))])
 
     train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
+
     model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=3e-4)
     
-    optimizer = torch.optim.SGD(params=model.parameters(), lr=0.0001)
+    # Define Loss Function
     loss_fn = nn.MSELoss()
+          
+    checkpoint = torch.load(args.pretrained_path)
+    start_epoch = checkpoint['epoch']
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    # Define lr scheduler
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     
-    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir)
+    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir)
     
