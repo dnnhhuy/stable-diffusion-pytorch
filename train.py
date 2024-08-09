@@ -159,5 +159,5 @@ if __name__ == '__main__':
     # Define lr scheduler
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     
-    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir)
+    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir, start_epoch=start_epoch)
     
