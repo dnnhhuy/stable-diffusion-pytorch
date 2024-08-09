@@ -285,8 +285,8 @@ class UNet_Decoder(nn.Module):
                     TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
                     TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
 
-            if i == 1:
-            # if i != 0:
+            # if i == 1:
+            if i != 0:
                 upsample = UNet_Upsample(out_ch)
             else:
                 upsample = nn.Identity()

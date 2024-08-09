@@ -105,6 +105,8 @@ def train(model: nn.Module,
 
         lr_scheduler.step(test_loss)
 
+        print("Current Learning Rate: ", lr_scheduler.get_last_lr())
+        
         print(f"\nEpoch {epoch} | "
         f"Train loss: {train_loss} | "
         f"Test loss: {test_loss}")
@@ -134,7 +136,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
     parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
-    parser.add_argument('--pretrained_path', default='./checkpoint', help='')
+    parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
+    parser.add_argument('--lr', default=3e-4, type=float, help='Learning rate')
 
     
     
@@ -146,16 +149,19 @@ if __name__ == '__main__':
     train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
 
     model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
-    optimizer = torch.optim.SGD(params=model.parameters(), lr=3e-4)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=args.lr)
     
     # Define Loss Function
     loss_fn = nn.MSELoss()
-          
-    checkpoint = torch.load(args.pretrained_path)
-    start_epoch = checkpoint['epoch']
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
+    start_epoch = 0
+    if args.pretrained_path:
+        checkpoint = torch.load(args.pretrained_path)
+        
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
     # Define lr scheduler
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     
