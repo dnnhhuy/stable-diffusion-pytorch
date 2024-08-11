@@ -7,7 +7,7 @@ from .ddpm import DDPMSampler
 from .ddim import DDIMSampler
 from .vae import VAE
 from .unet import UNet
-from .cond_encoder import TextEncoder
+from .cond_encoder import TextEncoder, ClassEncoder
 import sys
 import numpy as np
 sys.path.append("..")
@@ -19,14 +19,15 @@ from typing import Tuple, List
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
-        self.vae = VAE()
+        # self.vae = VAE()
         
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
             self.unet = UNet(in_channels=4, out_channels=4, cond_dim=768)
         elif model_type == 'class2img':
-            self.cond_encoder = None
-            self.unet = UNet(in_channels=3, out_channels=3, cond_dim=num_classes)
+            self.cond_encoder = ClassEncoder(num_classes=num_classes)
+            # self.cond_encoder = None
+            self.unet = UNet(in_channels=3, out_channels=3, cond_dim=768)
         else:
             raise ValueError('Only support txt2img or class2img model types')
     
@@ -42,7 +43,7 @@ class StableDiffusion(nn.Module):
     def generate(self, input_image: Image,
                  img_size: Tuple[int, int],
                  prompt: str,
-                 uncond_promt: str,
+                 uncond_prompt: str,
                  do_cfg: bool,
                  cfg_scale: int,
                  device: torch.device,
@@ -85,7 +86,7 @@ class StableDiffusion(nn.Module):
                 
             if do_cfg:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
-                uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_promt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
     
                 context = torch.cat([cond_tokens, uncond_tokens], dim=0)
                 context_embedding = self.cond_encoder(context)
@@ -143,21 +144,23 @@ class StableDiffusion(nn.Module):
             return generated_imgs[0]
 
     def generate_img_from_given_class(self, input_image: Image,
-                 img_size: Tuple[int, int],
-                 labels: List,
-                 do_cfg: bool,
-                 cfg_scale: int,
-                 device: torch.device,
-                 strength:float,
-                 inference_steps: int,
-                 sampler: str,
-                 use_cosine_schedule: bool,
-                 seed: int) -> torch.Tensor:
+                                      img_size: Tuple[int, int],
+                                      cond: List,
+                                      uncond: List,
+                                      do_cfg: bool,
+                                      cfg_scale: int,
+                                      device: torch.device,
+                                      strength:float,
+                                      inference_steps: int,
+                                      sampler: str,
+                                      use_cosine_schedule: bool,
+                                      seed: int) -> torch.Tensor:
 
         img_h, img_w = img_size
         LATENT_HEIGHT, LATENT_WIDTH = img_h // 8, img_w // 8
         
-        latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
+        # latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
+        latent_shape = (1, 3, img_h, img_w)
 
         generator = torch.Generator(device=device)
         if not seed:
@@ -175,34 +178,26 @@ class StableDiffusion(nn.Module):
         else:
             raise ValueError("Invalid sampler, available sampler is ddpm or ddim")
         
-        self.vae.eval()
         self.unet.eval()
         
-        with torch.inference_mode():
+        with torch.no_grad():
                 
             if do_cfg:
-                cond_context = torch.tensor(labels, dtype=torch.float32)
-                uncond_context = torch.zeros(cond_context.shape)
+                cond_context = torch.tensor(cond, dtype=torch.LongTensor)
+                uncond_context = torch.tensor(uncond, dtype=torch.LongTensor)
     
                 context = torch.cat([cond_context, uncond_context], dim=0)
                 context_embedding = context
     
             else:
-                context_embedding = torch.tensor(labels,dtype=torch.float32)
+                context_embedding = torch.tensor(cond, dtype=torch.LongTensor)
             
             # Encoding Image
-            self.vae.to(device)
             if input_image:
-                transformed_img = self._preprocess_image(input_image, img_size).to(device)
-
-                encoder_noise = torch.randn(latent_shape, generator=generator, device=device)
-                latent_features, _, _ =  self.vae.encode(transformed_img, encoder_noise)
-                
                 sampler.set_strength(strength=strength)
                 latent_features, noise = sampler.forward_process(latent_features, sampler.timesteps[0])
             else:
                 latent_features = torch.randn(latent_shape, generator=generator, dtype=torch.float32, device=device)
-            self.vae.to('cpu')
             
             # Denoising
             timesteps = tqdm(sampler.timesteps.to(device))
@@ -221,16 +216,12 @@ class StableDiffusion(nn.Module):
             
             self.unet.to('cpu')
     
-            self.vae.to(device)
-            generated_imgs = self.vae.decode(latent_features)
-            self.vae.to('cpu')
-
-            # generated_imgs = scale_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
-            # generated_imgs = generated_imgs.permute(0, 2, 3, 1)
-            # generated_imgs = generated_imgs.to('cpu', torch.uint8).numpy()
+            transform_to_image = transforms.ToPILImage()
             
-            # # Reset inference steps
-            # sampler._set_inference_steps(sampler.noise_step)
+            generated_imgs = transform_to_image(latent_features[0])
+            
+            # Reset inference steps
+            sampler._set_inference_steps(sampler.noise_step)
             
             return generated_imgs
     
@@ -241,22 +232,20 @@ class StableDiffusion(nn.Module):
         generator = torch.Generator(device=image.device)
         sampler = DDPMSampler(generator)
 
-        if self.cond_encoder:
-            prompt_encoding = self.cond_encoder(label)
-        else:
-            prompt_encoding = label
-
+        
+        cond_encoding = self.cond_encoder(label)
+        
         # latent_features, mean, stdev = self.vae.encode(image)
         
         # Actual noise
         with torch.no_grad():
             timestep = sampler._sample_timestep().int().to(device)
-            
+
             x_t, actual_noise = sampler.forward_process(image, timestep)
             # x_t, actual_noise = sampler.forward_process(image, timestep)
 
         # Predict noise
-        pred_noise = self.unet(x_t, timestep, prompt_encoding)
+        pred_noise = self.unet(x_t, timestep, cond_encoding)
 
         unet_loss = loss_fn(pred_noise, actual_noise)
 

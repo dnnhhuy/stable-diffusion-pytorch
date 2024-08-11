@@ -64,10 +64,10 @@ class TransformerEncoder(nn.Module):
         output = x + skip_connection
         return output
 
-# class ClassEncoder(nn.Module):
-#     def __init__(self, num_classes: int, emb_dim: int=768):
-#         super().__init__()
-#         self.embedding = nn.Embedding(num_classes + 1, emb_dim)
+class ClassEncoder(nn.Module):
+    def __init__(self, num_classes: int, emb_dim: int=768):
+        super().__init__()
+        self.embedding = nn.Embedding(num_classes + 1, emb_dim)
 
-#     def forward(self, x: torch.Tensor):
-#         return self.embedding(x)
+    def forward(self, x: torch.Tensor):
+        return self.embedding(x)

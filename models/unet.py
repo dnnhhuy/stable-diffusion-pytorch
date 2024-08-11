@@ -16,8 +16,6 @@ class UNet_TransformerEncoder(nn.Module):
         self.transformer_block = UNet_AttentionBlock(num_heads=num_heads, embedding_dim=channels, cond_dim=cond_dim)
 
         self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
-
-        self.add = torch.nn.quantized.FloatFunctional()
         
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None) -> torch.Tensor:
         # x: (b, c, h, w)
@@ -36,7 +34,7 @@ class UNet_TransformerEncoder(nn.Module):
 
         x = self.conv_output(x)
 
-        x = self.add.add(x, x_in)
+        x += x_in
         
         return x
         
@@ -60,26 +58,22 @@ class UNet_AttentionBlock(nn.Module):
         self.ffn = nn.Sequential(
             GeGELU(embedding_dim, embedding_dim * 4),
             nn.Linear(embedding_dim * 4, embedding_dim))
-
-        self.add_1 = torch.nn.quantized.FloatFunctional()
-        self.add_2 = torch.nn.quantized.FloatFunctional()
-        self.add_3 = torch.nn.quantized.FloatFunctional()
         
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         residual_x = x
         x = self.layernorm_1(x)
         x = self.attn1(x)
-        x = self.add_1.add(x, residual_x)
+        x += residual_x
         
         residual_x = x
         x = self.attn2(self.layernorm_2(x), cond=cond)
-        x = self.add_2.add(x, residual_x)
+        x += residual_x
         
         residual_x = x
         x = self.ffn(self.layernorm_3(x))
 
-        x = self.add_3.add(x, residual_x)
+        x += residual_x
         
         return x
         
@@ -105,48 +99,31 @@ class UNet_ResBlock(nn.Module):
         self.silu_2 = nn.SiLU()
         self.silu_t_embed = nn.SiLU()
 
-        self.quant_1 = torch.ao.quantization.QuantStub()
-        self.quant_t = torch.ao.quantization.QuantStub()
-        self.quant_2 = torch.ao.quantization.QuantStub()
-        self.dequant = torch.ao.quantization.DeQuantStub()
-
-        self.add_1 = torch.nn.quantized.FloatFunctional()
-        self.add_2 = torch.nn.quantized.FloatFunctional()
-
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor) -> torch.Tensor:
         # x: (n, c, h, w)
         h = self.groupnorm_1(x)
-        h = self.dequant(h)
         h = self.silu_1(h)
-        h = self.quant_1(h)
         h = self.conv_1(h)
         
         # time: (1, t_embed_dim) -> (1, out_channels)
-        t_embed = self.dequant(t_embed)
         time = self.silu_t_embed(t_embed)
-        time = self.quant_t(time)
         time = self.t_embed(time)
         # (n, out_channels, h, w) + (1, out_channels, 1, 1) -> (n, out_channels, h, w)
-        h = self.add_2.add(h, time[:, :, None, None])
+        h += time[:, :, None, None]
 
         h = self.groupnorm_2(h)
-        h = self.dequant(h)
         h = self.silu_2(h)
-        h = self.quant_2(h)
         h = self.conv_2(h)
 
 
         x = self.proj_input(x)
         
-        h = self.add_2.add(h, x)
+        h += x
         return h
 
 class TimeEmbedding(nn.Module):
     def __init__(self, t_embed_dim: int=320):
         super().__init__()
-        self.quant = torch.ao.quantization.QuantStub()
-        self.quant_timestep = torch.ao.quantization.QuantStub()
-        self.dequant = torch.ao.quantization.DeQuantStub()
         
         self.t_embed_dim = t_embed_dim
         self.ffn = nn.Sequential(
@@ -164,18 +141,7 @@ class TimeEmbedding(nn.Module):
             
     def forward(self, timestep: int) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)
-        t_embed = self.quant_timestep(t_embed)
-        for layer in self.ffn:
-            if isinstance(layer, nn.SiLU):
-                t_embed = self.dequant(t_embed)
-                t_embed = layer(t_embed)
-                t_embed = self.quant(t_embed)
-            else:
-                t_embed = layer(t_embed)
-
-        t_embed = self.dequant(t_embed)
-                
-        return t_embed
+        return self.ffn(t_embed)
 
 class TimeStepSequential(nn.Sequential):
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond=None) -> torch.Tensor:
@@ -237,14 +203,8 @@ class UNet_Encoder(nn.Module):
             down.downsample = downsample
             
             self.down.append(down)
-        self.quant_input = torch.ao.quantization.QuantStub()
-        self.quant_cond = torch.ao.quantization.QuantStub()
-        self.dequant = torch.ao.quantization.DeQuantStub()
-            
+       
     def forward(self, x: torch.Tensor, t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
-        x = self.quant_input(x)
-        cond = self.quant_cond(cond)
-        
         x = self.conv_in(x)
         skip_connections = [x]
         for down in self.down:
@@ -255,7 +215,7 @@ class UNet_Encoder(nn.Module):
             x = down.downsample(x)
             if not isinstance(down.downsample, nn.Identity):
                 skip_connections.append(x)
-        x = self.dequant(x)
+                
         return x, skip_connections
 
 class UNet_Decoder(nn.Module):
@@ -284,7 +244,7 @@ class UNet_Decoder(nn.Module):
                     TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)), 
                     TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
                     TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
-
+            
             # if i == 1:
             if i != 0:
                 upsample = UNet_Upsample(out_ch)
@@ -296,14 +256,10 @@ class UNet_Decoder(nn.Module):
 
             self.up.append(up)
 
-            self.quant = torch.ao.quantization.QuantStub()
-            self.quant_cond = torch.ao.quantization.QuantStub()
-            self.dequant = torch.ao.quantization.DeQuantStub()
+            
 
     def forward(self, x: torch.Tensor, skip_connections: List[torch.Tensor], t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
         # x: (b, c, h, w)
-        x = self.quant(x)
-        cond = self.quant_cond(cond)
         for up in self.up:
             for layer in up.block:
                 tmp = skip_connections.pop()
@@ -311,7 +267,6 @@ class UNet_Decoder(nn.Module):
                 x = layer(x, t_embed, cond)
             x = up.upsample(x)
             
-        x = self.dequant(x)
         return x
 
 class UNet(nn.Module):
@@ -331,12 +286,7 @@ class UNet(nn.Module):
             nn.SiLU(),
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
         
-        self.quant_silu = torch.ao.quantization.QuantStub()
-        self.dequant = torch.ao.quantization.DeQuantStub()
-        self.quant_bottleneck = torch.ao.quantization.QuantStub()
-        self.quant_t = torch.ao.quantization.QuantStub()
-        self.quant_cond = torch.ao.quantization.QuantStub()
-        self.quant_out = torch.ao.quantization.QuantStub()
+        
 
     def forward(self, x: torch.Tensor, timestep: int, cond: torch.Tensor) -> torch.Tensor:
         # t: int -> (1, 1280)
@@ -344,25 +294,12 @@ class UNet(nn.Module):
 
         x, skip_connections = self.encoder(x, t_embed, cond)
         
-        x = self.quant_bottleneck(x)
-        t_embed = self.quant_t(t_embed)
-        cond = self.quant_cond(cond)
+        
         x = self.bottleneck(x, t_embed, cond)
-        x = self.dequant(x)
-        t_embed = self.dequant(t_embed)
-        cond = self.dequant(cond)
+        
         
         x = self.decoder(x, skip_connections, t_embed, cond)
 
-        x = self.quant_out(x)
-        output = x
-        for layer in self.output:
-            if isinstance(layer, nn.SiLU):
-                output = self.dequant(output)
-                output = layer(output)
-                output = self.quant_silu(output)
-            else:
-                output = layer(output)
-        output = self.dequant(output)
+        output = self.output(x)
         return output
         

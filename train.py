@@ -24,10 +24,12 @@ def train_step(model: nn.Module,
     for i, (imgs, labels) in enumerate(tqdm(train_dataloader, position=0, leave=True)):
         imgs = imgs.to(device)
         
+        labels = torch.argmax(labels, dim=1) + 1
         # CFG: Unconditional pass
         if np.random.random() < uncondition_prob:
            labels = torch.zeros(labels.shape)
-        labels = labels.type(torch.float32).to(device)
+        
+        labels = labels.type(torch.LongTensor).to(device)
             
         loss = model(imgs, labels, loss_fn=loss_fn)
         train_loss += loss.item()
@@ -94,7 +96,7 @@ def train(model: nn.Module,
                                 ema_model=ema_model,
                                 train_dataloader=train_dataloader, 
                                 device=device,
-                                uncondition_prob=0.2,
+                                uncondition_prob=0.1,
                                 optimizer=optimizer,
                                loss_fn=loss_fn)
 

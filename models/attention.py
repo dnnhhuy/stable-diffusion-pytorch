@@ -10,9 +10,6 @@ class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True):
         super().__init__()
         
-        self.quant_attn = torch.ao.quantization.QuantStub()
-        
-        self.dequant = torch.ao.quantization.DeQuantStub()
         if not cond_dim:
             cond_dim = embedding_dim
             
@@ -26,7 +23,7 @@ class MultiheadSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=False) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
-        # cond: (n, seq_len, dim)
+        # cond: (n, seq_len, cond_dim)
         
         batch_size, seq_len, embedding_dim = x.shape
        
@@ -45,11 +42,6 @@ class MultiheadSelfAttention(nn.Module):
         k = k.view(*k.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         v = v.view(*v.shape[:2], self.num_heads, self.head_dim).permute(0, 2, 1, 3)
 
-        # Dequantize q, k, v
-        q = self.dequant(q)
-        k = self.dequant(k)
-        v = self.dequant(v)
-       
         # (n, num_heads, seq_len, head_dim) @ (n, num_heads, head_dim, seq_len) -> (n, num_heads, seq_len, seq_len)
         attn_weights = q @ k.transpose(-1, -2)
 
@@ -66,6 +58,5 @@ class MultiheadSelfAttention(nn.Module):
         # (n, num_heads, seq_len, head_dim) -> (n, seq_len, num_heads, head_dim) -> (n, seq_len, embedding_dim)
         attn_weights = attn_weights.transpose(1, 2).reshape((batch_size, seq_len, embedding_dim))
 
-        attn_weights = self.quant_attn(attn_weights)
         out = self.proj_out(attn_weights)
         return out
