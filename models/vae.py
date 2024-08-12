@@ -104,7 +104,7 @@ class VAE_Encoder(nn.Module):
 
 
 class VAE_Decoder(nn.Module):
-    def __init__(self, ch_mult: List[int]=[1, 2, 4, 4], dropout: float=0.0, z_channels: int=4):
+    def __init__(self, ch_mult: List[int]=[1, 2, 4, 4], dropout: float=0.0, z_channels: int=4, out_channels: int=3):
         super().__init__()
 
         ch = 128
@@ -140,7 +140,7 @@ class VAE_Decoder(nn.Module):
         self.out = nn.Sequential(
             nn.GroupNorm(num_groups=32, num_channels=ch), 
             nn.SiLU(),
-            nn.Conv2d(ch, 3, kernel_size=3, stride=1, padding=1))
+            nn.Conv2d(ch, out_channels, kernel_size=3, stride=1, padding=1))
 
         
             
@@ -187,3 +187,51 @@ class VAE(nn.Module):
         z = z / 0.18215
         out = self.decoder(z) 
         return out
+
+class VQVAE(nn.Module):
+    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4):
+        super().__init__()
+        self.encoder = VAE_Encoder(in_channels=in_channels, z_channels=z_channels)
+        self.decoder = VAE_Decoder(z_channels=z_channels*2, out_channels=in_channels)
+
+        # (codebook_size, z_channels)
+        self.quant_embedding = nn.Embedding(codebook_size, z_channels*2)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        # z: (n, c, h, w)
+        z = self.encoder(x)
+
+        n, c, h, w = z.shape
+
+        # (n, c, h, w) -> (n, c, h * w) -> (n, h* w, c)
+        z = z.view(n, c, -1).permute(0, 2, 1)
+
+        distance = torch.cdist(z, self.quant_embedding.weight.unsqueeze(0).repeat((z.shape[0], 1, 1)))
+
+        min_indices = torch.argmin(distance, dim=-1)
+
+        # quant_out -> (n*h*w, c)
+        quant_out = torch.index_select(self.quant_embedding.weight, 0, min_indices.view(-1))
+
+        # (n, h*w, c) -> (n*h*w, c)
+        z = z.reshape((-1, z.size(-1)))
+
+        vq_loss = F.mse_loss(z.detach(), quant_out)
+        commitment_loss = F.mse_loss(z, quant_out.detach())
+
+        quantize_loss = {"vq_loss": vq_loss,
+                         "commitment_loss": commitment_loss}
+        # Copy gradient
+        quant_out = z + (quant_out - z).detach()
+
+        quant_out = quant_out.reshape((n, h, w, c)).permute(0, 3, 1, 2)
+        min_indices = min_indices.reshape((-1, quant_out.shape[-2], quant_out.shape[-1]))
+        return quant_out, quantize_loss, min_indices
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        out = self.decoder(z) 
+        return out
+
+        
+
+        
