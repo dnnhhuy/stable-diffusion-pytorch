@@ -61,7 +61,8 @@ def test_step(model: nn.Module,
         for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True)):
             imgs = imgs.to(device)
 
-            labels = labels.type(torch.float32).to(device)
+            labels = torch.argmax(labels, dim=1) + 1
+            labels = labels.type(torch.LongTensor).to(device)
             
             loss = model(imgs, labels, loss_fn=loss_fn)
 
@@ -121,7 +122,7 @@ def train(model: nn.Module,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'train_loss': train_loss,
-        'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_duffusion_epoch_{epoch}.ckpt"))
+        'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
 
     print("Saving model...")
     torch.save(model.state_dict(), os.path.join(save_dir, "stable_diffusion_final.ckpt"))
@@ -151,7 +152,7 @@ if __name__ == '__main__':
     train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
 
     model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=args.lr)
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=args.lr)
     
     # Define Loss Function
     loss_fn = nn.MSELoss()
@@ -165,7 +166,7 @@ if __name__ == '__main__':
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     # Define lr scheduler
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     
     train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir, start_epoch=start_epoch)
     
