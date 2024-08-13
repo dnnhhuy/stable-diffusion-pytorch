@@ -133,13 +133,13 @@ class TimeEmbedding(nn.Module):
             # (1, 1280) -> (1, 1280)
             nn.Linear(t_embed_dim * 4,  t_embed_dim * 4))
 
-    def _get_time_embedding(self, timestep):
+    def _get_time_embedding(self, timestep: torch.LongTensor):
         half = self.t_embed_dim // 2
         freqs = torch.pow(10000, -torch.arange(0, half, dtype=torch.float32)/half)
-        x = torch.tensor([timestep], dtype=torch.float32, device=timestep.device)[None, :] * freqs[None, :].to(timestep.device)
+        x = timestep[:, None] * freqs[None, :].to(timestep.device)
         return torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
             
-    def forward(self, timestep: int) -> torch.Tensor:
+    def forward(self, timestep: torch.LongTensor) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)
         return self.ffn(t_embed)
 
@@ -288,7 +288,7 @@ class UNet(nn.Module):
         
         
 
-    def forward(self, x: torch.Tensor, timestep: int, cond: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, timestep: torch.LongTensor, cond: torch.Tensor) -> torch.Tensor:
         # t: int -> (1, 1280)
         t_embed = self.time_embedding(timestep)
 

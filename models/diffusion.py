@@ -19,7 +19,7 @@ from typing import Tuple, List
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
-        self.vae = VAE()
+        # self.vae = VAE()
         
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
@@ -115,6 +115,7 @@ class StableDiffusion(nn.Module):
             timesteps = tqdm(sampler.timesteps.to(device))
             self.unet.to(device)
             for i, timestep in enumerate(timesteps):
+                timestep = timestep.unsqueeze(0)
                 # (b, 8, latent_height, latent_width)
                 model_input = latent_features
                 if do_cfg:
@@ -236,26 +237,26 @@ class StableDiffusion(nn.Module):
             
             return generated_imgs
     
-    def forward(self, image: torch.Tensor, label: torch.Tensor, loss_fn: nn.Module):
+    def forward(self, images: torch.Tensor, labels: torch.Tensor, loss_fn: nn.Module):
 
-        device = image.device
+        device = images.device
 
-        generator = torch.Generator(device=image.device)
+        generator = torch.Generator(device=images.device)
         sampler = DDPMSampler(generator)
 
         
-        cond_encoding = self.cond_encoder(label)
+        cond_encoding = self.cond_encoder(labels)
         
         # latent_features, mean, stdev = self.vae.encode(image)
         
         # Actual noise
         with torch.no_grad():
-            timestep = sampler._sample_timestep().int().to(device)
-
-            x_t, actual_noise = sampler.forward_process(image, timestep)
+            timesteps = sampler._sample_timestep(images.shape[0]).to(device)
+            print(timesteps)
+            x_t, actual_noise = sampler.forward_process(images, timesteps)
 
         # Predict noise
-        pred_noise = self.unet(x_t, timestep, cond_encoding)
+        pred_noise = self.unet(x_t, timesteps, cond_encoding)
 
         unet_loss = loss_fn(pred_noise, actual_noise)
 

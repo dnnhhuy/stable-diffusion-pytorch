@@ -46,7 +46,7 @@ class MultiheadSelfAttention(nn.Module):
         attn_weights = q @ k.transpose(-1, -2)
 
         if lookahead_mask:
-            mask = torch.ones(attn_weights.shape, dtype=torch.bool).triu(1)
+            mask = torch.ones(attn_weights.shape, dtype=torch.bool).triu(1).to(x.device)
             attn_weights.masked_fill_(mask, -torch.inf)
 
         attn_weights = attn_weights / math.sqrt(self.head_dim)
