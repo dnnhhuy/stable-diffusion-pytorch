@@ -231,7 +231,3 @@ class VQVAE(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         out = self.decoder(z) 
         return out
-
-        
-
-        

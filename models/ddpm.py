@@ -32,7 +32,7 @@ class DDPMSampler:
         
 
     def _sample_timestep(self):
-        idx = random.randint(0, self.timesteps[0])
+        idx = random.randint(0, self.noise_step)
         return self.timesteps[idx]
         
     def _get_prev_timestep(self, timestep: int):

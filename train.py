@@ -42,7 +42,7 @@ def train_step(model: nn.Module,
             ema_model.step(model)
 
         if i % 100 == 0:
-            print(f"\nStep [{i}/{len(train_dataloader)}] | Loss: {loss.item():.2f}")
+            print(f"\nStep [{i}/{len(train_dataloader)}] | Loss: {loss.item():.4f}")
     
     train_loss /= len(train_dataloader)
     return train_loss
@@ -159,9 +159,9 @@ if __name__ == '__main__':
 
     start_epoch = 0
     if args.pretrained_path:
-        checkpoint = torch.load(args.pretrained_path)
+        checkpoint = torch.load(args.pretrained_path, map_location='cpu')
         
-        start_epoch = checkpoint['epoch']
+        start_epoch = checkpoint['epoch'] + 1
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
