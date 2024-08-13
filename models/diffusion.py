@@ -252,7 +252,6 @@ class StableDiffusion(nn.Module):
         # Actual noise
         with torch.no_grad():
             timesteps = sampler._sample_timestep(images.shape[0]).to(device)
-            print(timesteps)
             x_t, actual_noise = sampler.forward_process(images, timesteps)
 
         # Predict noise

@@ -289,9 +289,9 @@ class UNet(nn.Module):
         
 
     def forward(self, x: torch.Tensor, timestep: torch.LongTensor, cond: torch.Tensor) -> torch.Tensor:
-        # t: int -> (1, 1280)
+        # t: (n,) -> (n, 1280)
         t_embed = self.time_embedding(timestep)
-
+        
         x, skip_connections = self.encoder(x, t_embed, cond)
         
         
