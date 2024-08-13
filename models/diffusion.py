@@ -19,14 +19,13 @@ from typing import Tuple, List
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None):
         super().__init__()
-        # self.vae = VAE()
+        self.vae = VAE()
         
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
             self.unet = UNet(in_channels=4, out_channels=4, cond_dim=768)
         elif model_type == 'class2img':
             self.cond_encoder = ClassEncoder(num_classes=num_classes)
-            # self.cond_encoder = None
             self.unet = UNet(in_channels=3, out_channels=3, cond_dim=768)
         else:
             raise ValueError('Only support txt2img or class2img model types')
@@ -251,8 +250,7 @@ class StableDiffusion(nn.Module):
         
         # Actual noise
         with torch.no_grad():
-            # timestep = sampler._sample_timestep().int().to(device)
-            timestep = sampler.timesteps[-1].to(device)
+            timestep = sampler._sample_timestep().int().to(device)
 
             x_t, actual_noise = sampler.forward_process(image, timestep)
 
