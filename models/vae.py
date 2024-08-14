@@ -189,7 +189,7 @@ class VAE(nn.Module):
         return out
 
 class VQVAE(nn.Module):
-    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4, use_ema: bool=False, beta: float=0.995, is_training: bool=False):
+    def __init__(self, codebook_size: int=1024, in_channels: int=3, z_channels: int=4, use_ema: bool=False, beta: float=0.995):
         super().__init__()
         self.encoder = VAE_Encoder(in_channels=in_channels, z_channels=z_channels)
         self.decoder = VAE_Decoder(z_channels=z_channels*2, out_channels=in_channels)
@@ -204,13 +204,13 @@ class VQVAE(nn.Module):
 
         self.is_training = is_training
 
-        if self.use_ema and self.is_training:
+        if self.use_ema:
             self.beta = beta
             self.N = torch.zeros(codebook_size, requires_grad=False)
             self.M = nn.Parameter(torch.Tensor(self.codebook_size, self.codebook_dim), requires_grad=False)
             self.M.data.normal_()
 
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor, is_training: bool=False) -> torch.Tensor:
         # z: (n, c, h, w)
         z = self.encoder(x)
         n, c, h, w = z.shape
@@ -228,7 +228,7 @@ class VQVAE(nn.Module):
         quant_out = torch.index_select(self.quant_embedding.weight, 0, min_indices.view(-1))
 
         if self.use_ema:
-            if self.is_training:
+            if is_training:
                 self.update_quant_embedding(min_indices, z)
             
              # (n, h*w, c) -> (n*h*w, c)
