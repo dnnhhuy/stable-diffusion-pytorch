@@ -117,12 +117,12 @@ def train(model: nn.Module,
         results['train_loss'].append(train_loss)
         results['test_loss'].append(test_loss)
         
-        torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'train_loss': train_loss,
-        'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
+        # torch.save({
+        # 'epoch': epoch,
+        # 'model_state_dict': model.state_dict(),
+        # 'optimizer_state_dict': optimizer.state_dict(),
+        # 'train_loss': train_loss,
+        # 'test_loss': test_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
 
     print("Saving model...")
     torch.save(model.state_dict(), os.path.join(save_dir, "stable_diffusion_final.ckpt"))

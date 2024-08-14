@@ -4,12 +4,11 @@ import numpy as np
 import random
 
 class DDPMSampler:
-    def __init__(self, generator: torch.Generator, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=False):
+    def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=False):
         self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, dtype=torch.float32) ** 2
         self.alphas = 1 - self.betas
         self.alphas_hat = torch.cumprod(self.alphas, dim=0)
         self.noise_step = noise_step
-        self.generator = generator
         
         
         # Cosine-based noise schedule
@@ -48,7 +47,7 @@ class DDPMSampler:
         t = timestep
         # (n,) -> (n, 1, 1, 1)
         alpha_hat_t = self.alphas_hat.to(x_0.device)[t][:, None, None, None]
-        noise = torch.randn(x_0.shape, generator=self.generator, dtype=torch.float32, device=x_0.device)
+        noise = torch.randn(x_0.shape, dtype=torch.float32, device=x_0.device)
         latent = torch.sqrt(alpha_hat_t) * x_0 + torch.sqrt(1 - alpha_hat_t) * noise
         return latent, noise
 
@@ -72,7 +71,7 @@ class DDPMSampler:
             variance = torch.clamp(variance, min=1e-20)
             stdev = torch.sqrt(variance)
             
-        noise = torch.randn(x_t.shape, generator=self.generator, dtype=torch.float32, device=x_t.device)
+        noise = torch.randn(x_t.shape, dtype=torch.float32, device=x_t.device)
         less_noise_sample = mu + stdev * noise
 
         return less_noise_sample

@@ -189,7 +189,7 @@ class VAE(nn.Module):
         return out
 
 class VQVAE(nn.Module):
-    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4):
+    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4, use_ema: bool=False):
         super().__init__()
         self.encoder = VAE_Encoder(in_channels=in_channels, z_channels=z_channels)
         self.decoder = VAE_Decoder(z_channels=z_channels*2, out_channels=in_channels)
@@ -213,21 +213,25 @@ class VQVAE(nn.Module):
         # quant_out -> (n*h*w, c)
         quant_out = torch.index_select(self.quant_embedding.weight, 0, min_indices.view(-1))
 
-        # (n, h*w, c) -> (n*h*w, c)
-        z = z.reshape((-1, z.size(-1)))
-
-        vq_loss = F.mse_loss(z.detach(), quant_out)
-        commitment_loss = F.mse_loss(z, quant_out.detach())
-
-        quantize_loss = {"vq_loss": vq_loss,
-                         "commitment_loss": commitment_loss}
-        # Copy gradient
-        quant_out = z + (quant_out - z).detach()
-
-        quant_out = quant_out.reshape((n, h, w, c)).permute(0, 3, 1, 2)
-        min_indices = min_indices.reshape((-1, quant_out.shape[-2], quant_out.shape[-1]))
-        return quant_out, quantize_loss, min_indices
+        if use_ema:
+            pass
+        else:
+            # (n, h*w, c) -> (n*h*w, c)
+            z = z.reshape((-1, z.size(-1)))
+            
+            vq_loss = F.mse_loss(z.detach(), quant_out)
+            commitment_loss = F.mse_loss(z, quant_out.detach())
+            
+            quantize_loss = {"vq_loss": vq_loss,
+                             "commitment_loss": commitment_loss}
+            # Copy gradient
+            quant_out = z + (quant_out - z).detach()
+    
+            quant_out = quant_out.reshape((n, h, w, c)).permute(0, 3, 1, 2)
+            min_indices = min_indices.reshape((-1, quant_out.shape[-2], quant_out.shape[-1]))
+            return quant_out, quantize_loss, min_indices
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         out = self.decoder(z) 
         return out
+        

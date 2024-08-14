@@ -65,11 +65,11 @@ class StableDiffusion(nn.Module):
             generator.manual_seed(seed)
 
         if sampler == 'ddpm':
-            sampler = DDPMSampler(generator, use_cosine_schedule=use_cosine_schedule)
+            sampler = DDPMSampler(use_cosine_schedule=use_cosine_schedule)
             # Set desired inference steps
             sampler._set_inference_steps(inference_steps)
         elif sampler == 'ddim':
-            sampler = DDIMSampler(generator, use_cosine_schedule=use_cosine_schedule)
+            sampler = DDIMSampler(use_cosine_schedule=use_cosine_schedule)
             sampler._set_inference_steps(inference_steps)
         else:
             raise ValueError("Invalid sampler, available sampler is ddpm or ddim")
@@ -166,11 +166,11 @@ class StableDiffusion(nn.Module):
             generator.manual_seed(seed)
 
         if sampler == 'ddpm':
-            sampler = DDPMSampler(generator, use_cosine_schedule=use_cosine_schedule)
+            sampler = DDPMSampler(use_cosine_schedule=use_cosine_schedule)
             # Set desired inference steps
             sampler._set_inference_steps(inference_steps)
         elif sampler == 'ddim':
-            sampler = DDIMSampler(generator, use_cosine_schedule=use_cosine_schedule)
+            sampler = DDIMSampler(use_cosine_schedule=use_cosine_schedule)
             sampler._set_inference_steps(inference_steps)
         else:
             raise ValueError("Invalid sampler, available sampler is ddpm or ddim")
@@ -214,6 +214,7 @@ class StableDiffusion(nn.Module):
             self.unet.to(device)
             for i, timestep in enumerate(timesteps):
                 # (b, 8, latent_height, latent_width)
+                timestep = timestep.unsqueeze(0)
                 model_input = latent_features
                 if do_cfg:
                     model_input = model_input.repeat(2, 1, 1, 1)
@@ -240,14 +241,12 @@ class StableDiffusion(nn.Module):
     def forward(self, images: torch.Tensor, labels: torch.Tensor, loss_fn: nn.Module):
 
         device = images.device
-
-        generator = torch.Generator(device=images.device)
-        sampler = DDPMSampler(generator)
+        sampler = DDPMSampler()
 
         
         cond_encoding = self.cond_encoder(labels)
         
-        # latent_features, mean, stdev = self.vae.encode(image)
+        # latent_features, mean, stdev = self.vae.encode(images)
         
         # Actual noise
         with torch.no_grad():
@@ -257,13 +256,14 @@ class StableDiffusion(nn.Module):
         # Predict noise
         pred_noise = self.unet(x_t, timesteps, cond_encoding)
 
-        unet_loss = loss_fn(pred_noise, actual_noise)
+        unet_loss = loss_fn(actual_noise, pred_noise)
 
         # pred_image = self.vae.decode(pred_noise)
         
-        # VAE Loss
-        # Reconstruction Loss
+        # # VAE Loss
+        # # Reconstruction Loss
         # reconstruct_loss = loss_fn(pred_image, image)
+        # # KL Divergence
         # kl_divergence = -1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
         # vae_loss =  reconstruct_loss + kl_divergence
 
