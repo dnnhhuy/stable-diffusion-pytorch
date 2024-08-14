@@ -189,32 +189,60 @@ class VAE(nn.Module):
         return out
 
 class VQVAE(nn.Module):
-    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4, use_ema: bool=False):
+    def __init__(self, codebook_size: int, in_channels: int=3, z_channels: int=4, use_ema: bool=False, beta: float=0.995, is_training: bool=False):
         super().__init__()
         self.encoder = VAE_Encoder(in_channels=in_channels, z_channels=z_channels)
         self.decoder = VAE_Decoder(z_channels=z_channels*2, out_channels=in_channels)
-
+        
+        self.codebook_size = codebook_size
+        self.codebook_dim = z_channels * 2
+        
         # (codebook_size, z_channels)
-        self.quant_embedding = nn.Embedding(codebook_size, z_channels*2)
+        self.quant_embedding = nn.Embedding(self.codebook_size, self.codebook_dim)
+        
+        self.use_ema = use_ema
+
+        self.is_training = is_training
+
+        if self.use_ema and self.is_training:
+            self.beta = beta
+            self.N = torch.zeros(codebook_size, requires_grad=False)
+            self.M = nn.Parameter(torch.Tensor(self.codebook_size, self.codebook_dim), requires_grad=False)
+            self.M.data.normal_()
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         # z: (n, c, h, w)
         z = self.encoder(x)
-
         n, c, h, w = z.shape
 
-        # (n, c, h, w) -> (n, c, h * w) -> (n, h* w, c)
+        # (n, c, h, w) -> (n, c, h * w) -> (n, h * w, c)
         z = z.view(n, c, -1).permute(0, 2, 1)
 
+        # distance -> (n, h * w, codebook_size)
         distance = torch.cdist(z, self.quant_embedding.weight.unsqueeze(0).repeat((z.shape[0], 1, 1)))
 
+        # min_indices -> (n, h * w)
         min_indices = torch.argmin(distance, dim=-1)
 
         # quant_out -> (n*h*w, c)
         quant_out = torch.index_select(self.quant_embedding.weight, 0, min_indices.view(-1))
 
-        if use_ema:
-            pass
+        if self.use_ema:
+            if self.is_training:
+                self.update_quant_embedding(min_indices, z)
+            
+             # (n, h*w, c) -> (n*h*w, c)
+            z = z.reshape((-1, z.size(-1)))
+            
+            vq_loss = F.mse_loss(z.detach(), quant_out)
+            quantize_loss = vq_loss
+
+            # Copy gradient
+            quant_out = z + (quant_out - z).detach()
+    
+            quant_out = quant_out.reshape((n, h, w, c)).permute(0, 3, 1, 2)
+            return quant_out, quantize_loss, min_indices
+            
         else:
             # (n, h*w, c) -> (n*h*w, c)
             z = z.reshape((-1, z.size(-1)))
@@ -222,8 +250,7 @@ class VQVAE(nn.Module):
             vq_loss = F.mse_loss(z.detach(), quant_out)
             commitment_loss = F.mse_loss(z, quant_out.detach())
             
-            quantize_loss = {"vq_loss": vq_loss,
-                             "commitment_loss": commitment_loss}
+            quantize_loss =  vq_loss + commitment_loss
             # Copy gradient
             quant_out = z + (quant_out - z).detach()
     
@@ -234,4 +261,27 @@ class VQVAE(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         out = self.decoder(z) 
         return out
+
+    def update_quant_embedding(self, min_indices, encoder_input):
+        # encodings -> (n * h * w, codebook_size)
+        encodings = torch.zeros(min_indices.view(-1).size(0), self.codebook_size)
+        encodings.scatter_(1, min_indices.view(-1)[:, None], 1)
+
+        # (codebook_size)
+        self.N = self.beta * self.N + (1 - self.beta) * torch.sum(encodings, 0)
+
+        # (n, h * w, c) -> (n * h * w, c)
+        encoder_input = encoder_input.view(-1, self.codebook_dim)
+
+        # (codebook_size, c)
+        self.M = nn.Parameter(self.beta * self.M + (1 - self.beta) * (encodings.T @ encoder_input), requires_grad=False)
+
+        self.quant_embedding.weight = nn.Parameter(self.M / self.N.unsqueeze(1))
+
         
+        
+
+        
+        
+        
+                
