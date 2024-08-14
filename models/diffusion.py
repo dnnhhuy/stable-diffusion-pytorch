@@ -273,6 +273,6 @@ class StableDiffusion(nn.Module):
         vae_loss =  reconstruct_loss + kl_divergence
 
         # Total Loss
-        loss = unet_loss
+        loss = unet_loss + vae_loss
         
         return loss

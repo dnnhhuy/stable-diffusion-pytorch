@@ -234,8 +234,8 @@ class VQVAE(nn.Module):
              # (n, h*w, c) -> (n*h*w, c)
             z = z.reshape((-1, z.size(-1)))
             
-            vq_loss = F.mse_loss(z.detach(), quant_out)
-            quantize_loss = vq_loss
+            commitment_loss = F.mse_loss(z, quant_out.detach())
+            quantize_loss = commitment_loss
 
             # Copy gradient
             quant_out = z + (quant_out - z).detach()
