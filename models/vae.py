@@ -202,12 +202,10 @@ class VQVAE(nn.Module):
         
         self.use_ema = use_ema
 
-        self.is_training = is_training
-
         if self.use_ema:
             self.beta = beta
-            self.N = torch.zeros(codebook_size, requires_grad=False)
-            self.M = nn.Parameter(torch.Tensor(self.codebook_size, self.codebook_dim), requires_grad=False)
+            self.register_buffer("M", torch.zeros(codebook_size))
+            self.M = nn.Parameter(torch.Tensor(self.codebook_size, self.codebook_dim))
             self.M.data.normal_()
 
     def encode(self, x: torch.Tensor, is_training: bool=False) -> torch.Tensor:

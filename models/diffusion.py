@@ -20,10 +20,10 @@ class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None, vae_type: str=''):
         super().__init__()
         
-        if vae_type == 'vqvae':
-            self.vae = VQVAE()
-        else:
-            self.vae = VAE()
+        # if vae_type == 'vqvae':
+        #     self.vae = VQVAE()
+        # else:
+        #     self.vae = VAE()
         
         if model_type == 'txt2img':
             self.cond_encoder = TextEncoder()
@@ -250,29 +250,29 @@ class StableDiffusion(nn.Module):
         
         cond_encoding = self.cond_encoder(labels)
         
-        latent_features, mean, stdev = self.vae.encode(images)
+        # latent_features, mean, stdev = self.vae.encode(images)
         
         # Actual noise
         with torch.no_grad():
             timesteps = sampler._sample_timestep(images.shape[0]).to(device)
-            x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
+            x_t, actual_noise = sampler.forward_process(images, timesteps)
 
         # Predict noise
         pred_noise = self.unet(x_t, timesteps, cond_encoding)
 
         unet_loss = loss_fn(actual_noise, pred_noise)
 
-        pred_image = self.vae.decode(pred_noise)
+        # pred_image = self.vae.decode(pred_noise)
         
-        # VAE Loss
-        # Reconstruction Loss
-        reconstruct_loss = loss_fn(pred_image, images)
+        # # VAE Loss
+        # # Reconstruction Loss
+        # reconstruct_loss = loss_fn(pred_image, images)
         
-        # KL Divergence
-        kl_divergence = -1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
-        vae_loss =  reconstruct_loss + kl_divergence
+        # # KL Divergence
+        # kl_divergence = -1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
+        # vae_loss =  reconstruct_loss + kl_divergence
 
         # Total Loss
-        loss = unet_loss + vae_loss
+        loss = unet_loss
         
         return loss
