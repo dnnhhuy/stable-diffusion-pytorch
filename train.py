@@ -21,7 +21,7 @@ def train_step(model: nn.Module,
     
     train_loss = 0.
     model.train()
-    pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch:02d}")
+    pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}")
     for i, (imgs, labels) in enumerate(pbar):
         imgs = imgs.to(device)
         
