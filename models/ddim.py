@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import random
+from typing import Optional
 
 class DDIMSampler:
     def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=True):
@@ -40,15 +41,16 @@ class DDIMSampler:
         self.timesteps = self.timesteps[start_t:]
 
     # x_t ~ q(x_t | x_0) = N(x_t, sqrt(a_hat_t) * x_0, sqrt(1 - a_hat_t) * I)
-    def forward_process(self, x_0: torch.Tensor, timestep: int):
+    def forward_process(self, x_0: torch.Tensor, timestep: int, noise: Optional[torch.Tensor] = None):
         # x_0: (b, c, h, w)
         t = timestep
         # (1,) -> (1, 1, 1, 1)
-        alpha_hat_t = self.alphas_hat[t]
-              
-        noise = torch.randn_like(x_0, dtype=torch.float32, device=x_0.device)
+        alpha_hat_t = self.alphas_hat.to(x_0.device)[t][:, None, None, None]
+
+        if noise is None:
+            noise = torch.randn(x_0.shape, dtype=torch.float32, device=x_0.device)
+            
         latent = torch.sqrt(alpha_hat_t) * x_0 + torch.sqrt(1 - alpha_hat_t) * noise
-        
         return latent, noise
 
     # Denoising Diffusion Implicit Models

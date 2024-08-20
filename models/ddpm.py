@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import random
+from typing import Optional
 
 class DDPMSampler:
     def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=False):
@@ -10,7 +11,8 @@ class DDPMSampler:
         self.alphas_hat = torch.cumprod(self.alphas, dim=0)
         self.noise_step = noise_step
         
-        
+        self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy())   
+
         # Cosine-based noise schedule
         if use_cosine_schedule:
             s = 0.008
@@ -18,11 +20,7 @@ class DDPMSampler:
             self.alphas_hat = f_t(torch.arange(0, noise_step + 1)) / f_t(0)
             self.betas = torch.clip(1 - self.alphas_hat[1:]/self.alphas_hat[:-1], 0, 0.999)
             self.alphas = 1 - self.betas
-            self.alphas_hat = self.alphas_hat[1:]
-            
-        
-
-        self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy())        
+            self.alphas_hat = self.alphas_hat[1:] 
 
     def _set_inference_steps(self, inference_steps=50):
         self.inference_steps = inference_steps
@@ -42,12 +40,15 @@ class DDPMSampler:
         self.timesteps = self.timesteps[start_t:]
 
     # x_t ~ q(x_t | x_0) = N(x_t, sqrt(a_hat_t) * x_0, sqrt(1 - a_hat_t) * I)
-    def forward_process(self, x_0: torch.Tensor, timestep: torch.LongTensor):
+    def forward_process(self, x_0: torch.Tensor, timestep: torch.LongTensor, noise: Optional[torch.Tensor] = None):
         # x_0: (b, c, h, w)
         t = timestep
         # (n,) -> (n, 1, 1, 1)
         alpha_hat_t = self.alphas_hat.to(x_0.device)[t][:, None, None, None]
-        noise = torch.randn(x_0.shape, dtype=torch.float32, device=x_0.device)
+        
+        if noise is None:
+            noise = torch.randn(x_0.shape, dtype=torch.float32, device=x_0.device)
+            
         latent = torch.sqrt(alpha_hat_t) * x_0 + torch.sqrt(1 - alpha_hat_t) * noise
         return latent, noise
 
@@ -57,9 +58,9 @@ class DDPMSampler:
     def reverse_process(self, x_t: torch.Tensor, timestep: int, model_output=torch.Tensor) -> torch.Tensor:
         t = timestep
         prev_t = self._get_prev_timestep(t)
-        alpha_t = self.alphas.to(x_t.device)[t]
-        alpha_hat_t = self.alphas_hat.to(x_t.device)[t]
-        prev_alpha_hat_t = self.alphas_hat.to(x_t.device)[prev_t] if prev_t >= 0 else torch.tensor(1.0)
+        alpha_t = self.alphas[t]
+        alpha_hat_t = self.alphas_hat[t]
+        prev_alpha_hat_t = self.alphas_hat[prev_t] if prev_t >= 0 else torch.tensor(1.0)
 
         current_alpha_t = alpha_hat_t / prev_alpha_hat_t
         current_beta_t = 1 - current_alpha_t

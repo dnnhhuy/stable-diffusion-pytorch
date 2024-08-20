@@ -30,7 +30,7 @@ class StableDiffusion(nn.Module):
             self.unet = UNet(in_channels=4, out_channels=4, cond_dim=768)
         elif model_type == 'class2img':
             self.cond_encoder = ClassEncoder(num_classes=num_classes)
-            self.unet = UNet(in_channels=3, out_channels=3, cond_dim=768)
+            self.unet = UNet(in_channels=4, out_channels=4, cond_dim=768)
         else:
             raise ValueError('Only support txt2img or class2img model types')
     
@@ -110,9 +110,12 @@ class StableDiffusion(nn.Module):
                 latent_features, _, _ =  self.vae.encode(transformed_img, encoder_noise)
                 
                 sampler.set_strength(strength=strength)
-                latent_features, noise = sampler.forward_process(latent_features, sampler.timesteps[0])
+                latents_noise = torch.randn(latent_shape, generator=generator, device=device, dtype=torch.float32)
+                latent_features, _ = sampler.forward_process(latent_features, sampler.timesteps[0].unsqueeze(0), latents_noise)
+                
             else:
                 latent_features = torch.randn(latent_shape, generator=generator, dtype=torch.float32, device=device)
+                
             self.vae.to('cpu')
             
             # Denoising
@@ -123,19 +126,19 @@ class StableDiffusion(nn.Module):
                 # (b, 8, latent_height, latent_width)
                 model_input = latent_features
                 if do_cfg:
-                    model_input = model_input.repeat(2, 1, 1, 1)
+                    model_input = model_input.repeat(2, 1, 1, 1).to(device)
                 pred_noise = self.unet(model_input, timestep, context_embedding)
                 
                 if do_cfg:
                     cond_output, uncond_output = pred_noise.chunk(2)
                     pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
                 
-                latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
+                latent_features = sampler.reverse_process(latent_features.cpu(), timestep.cpu(), pred_noise.cpu())
             
             self.unet.to('cpu')
     
             self.vae.to(device)
-            generated_imgs = self.vae.decode(latent_features)
+            generated_imgs = self.vae.decode(latent_features.to(device))
             self.vae.to('cpu')
     
             generated_imgs = scale_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
@@ -255,13 +258,13 @@ class StableDiffusion(nn.Module):
         # Actual noise
         with torch.no_grad():
             timesteps = sampler._sample_timestep(images.shape[0]).to(device)
-            x_t, actual_noise = sampler.forward_process(images, timesteps)
+            x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
 
         # Predict noise
         pred_noise = self.unet(x_t, timesteps, cond_encoding)
 
         unet_loss = loss_fn(actual_noise, pred_noise)
-
+        
         pred_image = self.vae.decode(pred_noise)
         
         # VAE Loss

@@ -137,7 +137,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
-    parser.add_argument('--lr', default=3e-4, type=float, help='Learning rate')
+    parser.add_argument('--lr', default=0.0001, type=float, help='Learning rate')
 
     
     
