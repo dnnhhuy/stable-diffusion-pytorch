@@ -168,8 +168,9 @@ class UNet_Upsample(nn.Module):
         # self.upsample = nn.Upsample(scale_factor=2)
         self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
+    def forward(self, x: torch.Tensor, upscale=True) -> torch.Tensor:
+        if upscale:
+            x = F.interpolate(x, scale_factor=2, mode='nearest')
         return self.conv(x)
     
 class UNet_Encoder(nn.Module):
@@ -223,8 +224,7 @@ class UNet_Decoder(nn.Module):
         super().__init__()
         ch = 320
         decoder_channels = ch_multiplier + [4]
-        # [1280, 1280, 1280, 640, 320]
-        # (1280, 1280), (1280, 1280), (1280, 640), (640, 320)
+        
         self.up = nn.ModuleList()
         for i in reversed(range(len(ch_multiplier))):
             up = nn.Module()
@@ -245,7 +245,6 @@ class UNet_Decoder(nn.Module):
                     TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
                     TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
             
-            # if i == 1:
             if i != 0:
                 upsample = UNet_Upsample(out_ch)
             else:
@@ -260,12 +259,17 @@ class UNet_Decoder(nn.Module):
 
     def forward(self, x: torch.Tensor, skip_connections: List[torch.Tensor], t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
         # x: (b, c, h, w)
+        prev_hw = skip_connections[-1].shape[-1]
         for up in self.up:
             for layer in up.block:
                 tmp = skip_connections.pop()
                 x = torch.cat([x, tmp], dim=1)
                 x = layer(x, t_embed, cond)
-            x = up.upsample(x)
+                
+            if skip_connections and skip_connections[-1].shape[-1] == prev_hw:
+                x = up.upsample(x, upscale=False)
+            else:
+                x = up.upsample(x)
             
         return x
 

@@ -211,7 +211,7 @@ class StableDiffusion(nn.Module):
                                                 transforms.ToTensor()])
                 transformed_img = transform(input_image).unsqueeze(0).to(device)
                 sampler.set_strength(strength=strength)
-                latent_features, noise = sampler.forward_process(transformed_img, sampler.timesteps[0])
+                latent_features, _ = sampler.forward_process(transformed_img, sampler.timesteps[0])
             else:
                 latent_features = torch.randn(latent_shape, generator=generator, dtype=torch.float32, device=device)
 

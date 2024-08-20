@@ -132,19 +132,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training Arguments')
     parser.add_argument('--device', default='cpu', type=str, help='Choose device to train')
     parser.add_argument('--data_dir', default='data/sprites', type=str, help='Data directory')
+    parser.add_argument('--img_size', default=32, type=int, help='Image size')
     parser.add_argument('--batch_size', default=32, type=int, help="Batch size")
     parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
     parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
-    parser.add_argument('--lr', default=0.0001, type=float, help='Learning rate')
+    parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
 
     
     
     args = parser.parse_args()
     
     transform = transforms.Compose([transforms.ToTensor(),
-                                   transforms.Resize((16, 16))])
+                                   transforms.Resize((args.img_size, args.img_size))])
 
     train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
 
