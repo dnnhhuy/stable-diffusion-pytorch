@@ -16,12 +16,13 @@ def train_step(model: nn.Module,
                optimizer: torch.optim.Optimizer,
                loss_fn: nn.Module,
                uncondition_prob: float,
+               epoch: int,
                use_ema: bool=False):
     
     train_loss = 0.
     model.train()
-    
-    for i, (imgs, labels) in enumerate(tqdm(train_dataloader, position=0, leave=True)):
+    pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch:02d}")
+    for i, (imgs, labels) in enumerate(pbar):
         imgs = imgs.to(device)
         
         labels = torch.argmax(labels, dim=1) + 1
@@ -41,8 +42,7 @@ def train_step(model: nn.Module,
         if ema_model is not None:
             ema_model.step(model)
 
-        if i % 100 == 0:
-            print(f"\nStep [{i}/{len(train_dataloader)}] | Loss: {loss.item():.4f}")
+        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
     
     train_loss /= len(train_dataloader)
     return train_loss
@@ -91,15 +91,16 @@ def train(model: nn.Module,
     ema_model = None
     if use_ema:
         ema_model = EMA(model=model, beta=0.995)
-    
-    for epoch in tqdm(range(start_epoch, epochs)):
+        
+    for epoch in range(start_epoch, epochs):
         train_loss = train_step(model=model,
                                 ema_model=ema_model,
                                 train_dataloader=train_dataloader, 
                                 device=device,
                                 uncondition_prob=0.1,
                                 optimizer=optimizer,
-                               loss_fn=loss_fn)
+                               loss_fn=loss_fn,
+                               epoch=epoch)
 
         test_loss = test_step(model=model,
                               test_dataloader=test_dataloader,
@@ -107,12 +108,8 @@ def train(model: nn.Module,
                              loss_fn=loss_fn)
 
         lr_scheduler.step(test_loss)
-
-        print("Current Learning Rate: ", lr_scheduler.get_last_lr())
         
-        print(f"\nEpoch {epoch} | "
-        f"Train loss: {train_loss} | "
-        f"Test loss: {test_loss}")
+        print(f"Train Loss: {train_loss} | Test Loss: {test_loss} | Current LR: {lr_scheduler.get_last.lr()}")
 
         results['train_loss'].append(train_loss)
         results['test_loss'].append(test_loss)
