@@ -109,7 +109,7 @@ def train(model: nn.Module,
 
         lr_scheduler.step(test_loss)
         
-        print(f"Train Loss: {train_loss} | Test Loss: {test_loss} | Current LR: {lr_scheduler.get_last.lr()}")
+        print(f"Train Loss: {train_loss} | Test Loss: {test_loss} | Current LR: {lr_scheduler.get_last_lr()}")
 
         results['train_loss'].append(train_loss)
         results['test_loss'].append(test_loss)
