@@ -6,3 +6,4 @@ data/
 images/
 *.pth
 *.ipynb
+output/

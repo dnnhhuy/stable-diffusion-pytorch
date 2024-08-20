@@ -43,7 +43,7 @@ class StableDiffusion(nn.Module):
         img = img.permute(0, 3, 1, 2)
         return img
     
-    def generate(self, input_image: Image,
+    def generate(self, input_image: Image.Image,
                  img_size: Tuple[int, int],
                  prompt: str,
                  uncond_prompt: str,
