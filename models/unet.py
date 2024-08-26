@@ -259,8 +259,8 @@ class UNet_Decoder(nn.Module):
 
     def forward(self, x: torch.Tensor, skip_connections: List[torch.Tensor], t_embed: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
         # x: (b, c, h, w)
-        prev_hw = skip_connections[-1].shape[-1]
         for up in self.up:
+            prev_hw = skip_connections[-1].shape[-1]
             for layer in up.block:
                 tmp = skip_connections.pop()
                 x = torch.cat([x, tmp], dim=1)

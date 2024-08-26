@@ -16,12 +16,11 @@ def train_step(model: nn.Module,
                optimizer: torch.optim.Optimizer,
                loss_fn: nn.Module,
                uncondition_prob: float,
-               epoch: int,
-               use_ema: bool=False):
+               epoch: int):
     
     train_loss = 0.
     model.train()
-    pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}")
+    pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, (imgs, labels) in enumerate(pbar):
         imgs = imgs.to(device)
         
@@ -32,7 +31,7 @@ def train_step(model: nn.Module,
         
         labels = labels.type(torch.LongTensor).to(device)
             
-        loss = model(imgs, labels, loss_fn=loss_fn)
+        loss, unet_loss, vae_loss = model(imgs, labels, loss_fn=loss_fn)
         train_loss += loss.item()
         
         optimizer.zero_grad()
@@ -42,7 +41,7 @@ def train_step(model: nn.Module,
         if ema_model is not None:
             ema_model.step(model)
 
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+        pbar.set_postfix({"loss": f"{loss.item():.4f}", "unet_loss": f"{unet_loss:.4f}", "vae_loss": f"{vae_loss:.4f}"})
     
     train_loss /= len(train_dataloader)
     return train_loss
@@ -64,7 +63,7 @@ def test_step(model: nn.Module,
             labels = torch.argmax(labels, dim=1) + 1
             labels = labels.type(torch.LongTensor).to(device)
             
-            loss = model(imgs, labels, loss_fn=loss_fn)
+            loss, _, _ = model(imgs, labels, loss_fn=loss_fn)
 
             test_loss += loss.item()
             
@@ -143,11 +142,8 @@ if __name__ == '__main__':
     
     
     args = parser.parse_args()
-    
-    transform = transforms.Compose([transforms.ToTensor(),
-                                   transforms.Resize((args.img_size, args.img_size))])
 
-    train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, transform=transform, train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
+    train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, img_size=(args.img_size, args.img_size), train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
 
     model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
     optimizer = torch.optim.SGD(params=model.parameters(), lr=args.lr)

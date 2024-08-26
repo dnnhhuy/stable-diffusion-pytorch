@@ -164,7 +164,7 @@ class StableDiffusion(nn.Module):
                                       seed: int) -> torch.Tensor:
 
         img_h, img_w = img_size
-        latent_shape = (1, 3, img_h, img_w)
+        latent_shape = (1, 4, img_h // 8, img_w // 8)
 
         generator = torch.Generator(device=device)
         if not seed:
@@ -183,6 +183,7 @@ class StableDiffusion(nn.Module):
             raise ValueError("Invalid sampler, available sampler is ddpm or ddim")
         
         self.unet.eval()
+        self.vae.eval()
         self.cond_encoder.eval()
         
         with torch.no_grad():
@@ -207,15 +208,16 @@ class StableDiffusion(nn.Module):
             
             # Encoding Image
             if input_image:
-                transform = transforms.Compose([transforms.Resize((16, 16)),
-                                                transforms.ToTensor()])
-                transformed_img = transform(input_image).unsqueeze(0).to(device)
+                transformed_img = self._preprocess_image(input_image, img_size).to(device)
+                
+                self.vae.to(device)
+                latent_features, _, _ = self.vae.encode(transformed_img)
+                self.vae.to('cpu')
                 sampler.set_strength(strength=strength)
-                latent_features, _ = sampler.forward_process(transformed_img, sampler.timesteps[0])
+                latent_features, _ = sampler.forward_process(latent_features, sampler.timesteps[0])
             else:
                 latent_features = torch.randn(latent_shape, generator=generator, dtype=torch.float32, device=device)
 
-            
             # Denoising
             timesteps = tqdm(sampler.timesteps.to(device))
             self.unet.to(device)
@@ -235,26 +237,28 @@ class StableDiffusion(nn.Module):
                 latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
                 
             self.unet.to('cpu')
-    
-            transform_to_image = transforms.ToPILImage()
+
+            self.vae.to(device)
+            latent_features = self.vae.decode(latent_features)
+            self.vae.to('cpu')
             
-            generated_imgs = transform_to_image(latent_features[0])
+            generated_imgs = scale_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
+            generated_imgs = generated_imgs.permute(0, 2, 3, 1)
+            generated_imgs = generated_imgs.to('cpu', torch.uint8).numpy()
             
             # Reset inference steps
             sampler._set_inference_steps(sampler.noise_step)
             
-            return generated_imgs
+            return generated_imgs[0]
     
     def forward(self, images: torch.Tensor, labels: torch.Tensor, loss_fn: nn.Module):
 
         device = images.device
         sampler = DDPMSampler()
-
         
         cond_encoding = self.cond_encoder(labels)
         
         latent_features, mean, stdev = self.vae.encode(images)
-        
         # Actual noise
         with torch.no_grad():
             timesteps = sampler._sample_timestep(images.shape[0]).to(device)
@@ -265,17 +269,17 @@ class StableDiffusion(nn.Module):
 
         unet_loss = loss_fn(actual_noise, pred_noise)
         
-        pred_image = self.vae.decode(pred_noise)
+        pred_image = self.vae.decode(latent_features)
         
         # VAE Loss
         # Reconstruction Loss
         reconstruct_loss = loss_fn(pred_image, images)
-        
         # KL Divergence
-        kl_divergence = -1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2))
+        kl_divergence = torch.mean(-1/2 * torch.sum(1 + torch.log(stdev.pow(2)) - mean.pow(2) - stdev.pow(2), dim=(1, 2, 3)), dim=0)
+        
         vae_loss =  reconstruct_loss + kl_divergence
 
         # Total Loss
         loss = unet_loss + vae_loss
         
-        return loss
+        return loss, unet_loss.item(), vae_loss.item()
