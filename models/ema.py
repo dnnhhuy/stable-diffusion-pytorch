@@ -1,3 +1,6 @@
+import copy
+import torch
+
 class EMA:
     def __init__(self, model, beta, start_ema: int=2000):
         self.ema_model = copy.deepcopy(model).eval().requires_grad(False)

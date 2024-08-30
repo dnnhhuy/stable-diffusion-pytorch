@@ -135,9 +135,9 @@ class TimeEmbedding(nn.Module):
 
     def _get_time_embedding(self, timestep: torch.LongTensor):
         half = self.t_embed_dim // 2
-        freqs = torch.pow(10000, -torch.arange(0, half, dtype=torch.float32)/half)
+        freqs = torch.pow(10000, -torch.arange(0, half, dtype=torch.long)/half)
         x = timestep[:, None] * freqs[None, :].to(timestep.device)
-        return torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
+        return torch.cat([torch.cos(x), torch.sin(x)], dim=-1).type(torch.get_default_dtype())
             
     def forward(self, timestep: torch.LongTensor) -> torch.Tensor:
         t_embed = self._get_time_embedding(timestep)

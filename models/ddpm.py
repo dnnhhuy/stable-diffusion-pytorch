@@ -3,24 +3,26 @@ from torch import nn
 import numpy as np
 import random
 from typing import Optional
+import math
 
 class DDPMSampler:
-    def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=False):
-        self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, dtype=torch.float32) ** 2
+    def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.0120, use_cosine_schedule: bool=False, device: str='cpu'):
+        self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, device=device) ** 2
         self.alphas = 1 - self.betas
         self.alphas_hat = torch.cumprod(self.alphas, dim=0)
         self.noise_step = noise_step
         
-        self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy())   
+        self.timesteps = torch.from_numpy(np.arange(0, noise_step)[::-1].copy()).to(device)   
 
         # Cosine-based noise schedule
         if use_cosine_schedule:
             s = 0.008
             f_t = lambda t: np.cos((t/noise_step + s)/(1 + s) * np.pi/2) ** 2
             self.alphas_hat = f_t(torch.arange(0, noise_step + 1)) / f_t(0)
+            self.alphas_hat = self.alphas_hat.to(device)
             self.betas = torch.clip(1 - self.alphas_hat[1:]/self.alphas_hat[:-1], 0, 0.999)
-            self.alphas = 1 - self.betas
-            self.alphas_hat = self.alphas_hat[1:] 
+            self.alphas = torch.clip(1. - self.betas, 0, 0.999)
+            self.alphas_hat = torch.clip(self.alphas_hat[1:], 0, 0.999)
 
     def _set_inference_steps(self, inference_steps=50):
         self.inference_steps = inference_steps
@@ -47,7 +49,7 @@ class DDPMSampler:
         alpha_hat_t = self.alphas_hat.to(x_0.device)[t][:, None, None, None]
         
         if noise is None:
-            noise = torch.randn(x_0.shape, dtype=torch.float32, device=x_0.device)
+            noise = torch.randn(x_0.shape, dtype=x_0.dtype, device=x_0.device)
             
         latent = torch.sqrt(alpha_hat_t) * x_0 + torch.sqrt(1 - alpha_hat_t) * noise
         return latent, noise
@@ -60,20 +62,20 @@ class DDPMSampler:
         prev_t = self._get_prev_timestep(t)
         alpha_t = self.alphas[t]
         alpha_hat_t = self.alphas_hat[t]
-        prev_alpha_hat_t = self.alphas_hat[prev_t] if prev_t >= 0 else torch.tensor(1.0)
+        prev_alpha_hat_t = self.alphas_hat[prev_t] if prev_t >= 0 else torch.tensor(1.0, device=x_t.device)
 
-        current_alpha_t = alpha_hat_t / prev_alpha_hat_t
+        current_alpha_t = torch.clip(alpha_hat_t / prev_alpha_hat_t, 0, 0.999)
         current_beta_t = 1 - current_alpha_t
-        
+
         mu = 1/torch.sqrt(current_alpha_t) * (x_t - ((1 - current_alpha_t)/torch.sqrt(1 - alpha_hat_t)) * model_output)
+        
         stdev = 0
         if t > 0:
             variance = (1 - prev_alpha_hat_t) / (1 - alpha_hat_t) * current_beta_t
             variance = torch.clamp(variance, min=1e-20)
             stdev = torch.sqrt(variance)
             
-        noise = torch.randn(x_t.shape, dtype=torch.float32, device=x_t.device)
+        noise = torch.randn(x_t.shape, dtype=x_t.dtype, device=x_t.device)
         less_noise_sample = mu + stdev * noise
-
         return less_noise_sample
         
