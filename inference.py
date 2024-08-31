@@ -21,6 +21,14 @@ def create_tokenizer():
     tokenizer = CLIPTokenizer('./weights/tokenizer/tokenizer_vocab.json', merges_file='./weights/tokenizer/tokenizer_merges.txt')
     return tokenizer
 
+def initialize_model():
+    start_time = time.time()
+    model = create_model()
+    print(f"Loaded model in {time.time() - start_time:.2f}s")
+    start_time = time.time()
+    tokenizer = create_tokenizer()
+    print(f"Loaded tokenizer in {time.time() - start_time:.2f}s")
+    return model, tokenizer
 
 def inference(args, input_image: Optional[Image.Image] = None):
     start_time = time.time()
@@ -35,6 +43,7 @@ def inference(args, input_image: Optional[Image.Image] = None):
         img_size=(args.img_size, args.img_size),
         prompt=args.prompt,
         uncond_prompt=args.uncond_prompt,
+        n_samples=args.n_samples,
         do_cfg=args.do_cfg,
         cfg_scale=args.cfg_scale,
         device=args.device,
@@ -55,6 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_path', default='', type=str, help="Image path")
     parser.add_argument('--prompt', default='', type=str, help='Input prompt')
     parser.add_argument('--uncond_prompt', default='', type=str, help='Unconditional prompt')
+    parser.add_argument('--n_samples', default=3, type=int, help='Number of generated images')
     
     args = parser.parse_args()
     args.do_cfg = True

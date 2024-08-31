@@ -7,3 +7,4 @@ images/
 *.pth
 *.ipynb
 output/
+demo/

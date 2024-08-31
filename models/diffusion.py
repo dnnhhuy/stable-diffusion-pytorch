@@ -48,6 +48,7 @@ class StableDiffusion(nn.Module):
                  img_size: Tuple[int, int],
                  prompt: str,
                  uncond_prompt: str,
+                 n_samples: int,
                  do_cfg: bool,
                  cfg_scale: int,
                  device: torch.device,
@@ -63,7 +64,7 @@ class StableDiffusion(nn.Module):
         img_h, img_w = img_size
         LATENT_HEIGHT, LATENT_WIDTH = img_h // 8, img_w // 8
         
-        latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
+        latent_shape = (n_samples, 4, LATENT_HEIGHT, LATENT_WIDTH)
 
         generator = torch.Generator(device=device)
         if not seed:
@@ -92,13 +93,16 @@ class StableDiffusion(nn.Module):
                 
             if do_cfg:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                cond_tokens = cond_tokens.repeat(n_samples, 1)
                 uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                uncond_tokens = uncond_tokens.repeat(n_samples, 1)
     
                 context = torch.cat([cond_tokens, uncond_tokens], dim=0)
                 context_embedding = self.cond_encoder(context)
     
             else:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                cond_tokens = cond_tokens.repeat(n_samples, 1)
                 context_embedding = self.cond_encoder(cond_tokens)
             
             self.cond_encoder.to('cpu')
@@ -109,8 +113,9 @@ class StableDiffusion(nn.Module):
             if input_image:
                 transformed_img = self._preprocess_image(input_image, img_size, dtype=torch.get_default_dtype()).to(device)
 
-                encoder_noise = torch.randn(latent_shape, generator=generator, device=device)
+                encoder_noise = torch.randn((1, *latent_shape[1:]), generator=generator, device=device)
                 latent_features, _, _ =  self.vae.encode(transformed_img, encoder_noise)
+                latent_features = latent_features.repeat(n_samples, 1, 1, 1)
                 
                 sampler.set_strength(strength=strength)
                 latents_noise = torch.randn(latent_shape, generator=generator, device=device, dtype=dtype)
@@ -129,14 +134,17 @@ class StableDiffusion(nn.Module):
                 # (b, 8, latent_height, latent_width)
                 model_input = latent_features
                 if do_cfg:
-                    model_input = model_input.repeat(2, 1, 1, 1).to(device)
+                    model_input = model_input.repeat(2, 1, 1, 1)
+                    
+                model_input = model_input.to(device)
+                    
                 pred_noise = self.unet(model_input, timestep, context_embedding)
                 
                 if do_cfg:
                     cond_output, uncond_output = pred_noise.chunk(2)
                     pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
                 
-                latent_features = sampler.reverse_process(latent_features.cpu(), timestep.cpu(), pred_noise.cpu())
+                latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
             
             self.unet.to('cpu')
     
@@ -151,12 +159,14 @@ class StableDiffusion(nn.Module):
             # Reset inference steps
             sampler._set_inference_steps(sampler.noise_step)
             
-            return generated_imgs[0]
+            torch.mps.empty_cache()
+            return generated_imgs
 
     def generate_img_from_given_class(self, input_image: Image,
                                       img_size: Tuple[int, int],
                                       cond: List,
                                       uncond: List,
+                                      n_samples: int,
                                       do_cfg: bool,
                                       cfg_scale: int,
                                       device: torch.device,
@@ -169,7 +179,7 @@ class StableDiffusion(nn.Module):
         dtype = torch.get_default_dtype()
 
         img_h, img_w = img_size
-        latent_shape = (1, 4, img_h // 8, img_w // 8)
+        latent_shape = (n_samples, 4, img_h // 8, img_w // 8)
 
         generator = torch.Generator(device=device)
         if not seed:
@@ -197,9 +207,11 @@ class StableDiffusion(nn.Module):
             if do_cfg:
                 cond_context = torch.argmax(torch.tensor(cond, dtype=torch.long), dim=1) + 1
                 cond_embedding = self.cond_encoder(cond_context.to(device))
+                cond_embedding = cond_embedding.repeat(n_samples, 1, 1)
                 
                 uncond_context = torch.zeros(cond_context.shape, dtype=torch.long)
                 uncond_embedding = self.cond_encoder(uncond_context.to(device))
+                uncond_embedding = uncond_embedding.repeat(n_samples, 1, 1)
     
                 context = torch.cat([cond_embedding, uncond_embedding], dim=0)
                 context_embedding = context
@@ -208,6 +220,7 @@ class StableDiffusion(nn.Module):
                 cond_context = torch.argmax(torch.tensor(cond, dtype=torch.long), dim=1) + 1
                 cond_context = cond_context.type(torch.LongTensor).to(device)
                 context_embedding = self.cond_encoder(cond_context)
+                context_embedding = context_embedding.repeat(n_samples, 1, 1)
                 
             self.cond_encoder.to(device).to('cpu')
             
@@ -219,10 +232,12 @@ class StableDiffusion(nn.Module):
                 latent_features, _, _ = self.vae.encode(transformed_img)
                 self.vae.to('cpu')
                 sampler.set_strength(strength=strength)
+                latent_features = latent_features.repeat(n_samples, 1, 1, 1)
                 latent_features, _ = sampler.forward_process(latent_features, sampler.timesteps[0])
             else:
                 latent_features = torch.randn(latent_shape, generator=generator, dtype=dtype, device=device)
-
+                
+            
             # Denoising
             timesteps = tqdm(sampler.timesteps.to(device))
             self.unet.to(device)
@@ -236,7 +251,7 @@ class StableDiffusion(nn.Module):
                 pred_noise = self.unet(model_input, timestep, context_embedding)
                 
                 if do_cfg:
-                    cond_output, uncond_output = pred_noise.chunk(2)
+                    cond_output, uncond_output = pred_noise.chunk(2, dim=0)
                     pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
                 
                 latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
@@ -254,17 +269,20 @@ class StableDiffusion(nn.Module):
             # Reset inference steps
             sampler._set_inference_steps(sampler.noise_step)
             
-            return generated_imgs[0]
+            torch.mps.empty_cache()
+            return generated_imgs
     
-    def inpainting(self, 
+    def inpaint(self, 
                    input_image: Image.Image,
-                   mask: torch.Tensor,
+                   mask: Image.Image,
                    img_size: Tuple[int, int],
                    prompt: str,
                    uncond_prompt: str,
+                   n_samples: int,
                    do_cfg: bool,
                    cfg_scale: int,
                    device: torch.device,
+                   strength: float,
                    inference_steps: int,
                    sampler: str, 
                    use_cosine_schedule: bool,
@@ -277,7 +295,7 @@ class StableDiffusion(nn.Module):
         img_h, img_w = img_size
         LATENT_HEIGHT, LATENT_WIDTH = img_h // 8, img_w // 8
         
-        latent_shape = (1, 4, LATENT_HEIGHT, LATENT_WIDTH)
+        latent_shape = (n_samples, 4, LATENT_HEIGHT, LATENT_WIDTH)
 
         generator = torch.Generator(device=device)
         if not seed:
@@ -306,32 +324,49 @@ class StableDiffusion(nn.Module):
                 
             if do_cfg:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                cond_tokens = cond_tokens.repeat(n_samples, 1)
                 uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                uncond_tokens = uncond_tokens.repeat(n_samples, 1)
     
                 context = torch.cat([cond_tokens, uncond_tokens], dim=0)
                 context_embedding = self.cond_encoder(context)
     
             else:
                 cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                cond_tokens = cond_tokens.repeat(n_samples, 1)
                 context_embedding = self.cond_encoder(cond_tokens)
             
             self.cond_encoder.to('cpu')
            
             transformed_imgs = self._preprocess_image(input_image, img_size, dtype=dtype).to(device)
             
-            # Encoding Image
-            self.vae.to(device)
-            encoder_noise = torch.randn(latent_shape, generator=generator, device=device)
-            encoded_img, _, _ =  self.vae.encode(transformed_imgs, encoder_noise)
-            latents_noise = torch.randn(latent_shape, generator=generator, device=device, dtype=dtype)
-            latent_features, noise = sampler.forward_process(encoded_img, sampler.timesteps[0].unsqueeze(0), latents_noise)
-            self.vae.to('cpu')
-
+            mask = mask.resize(img_size)
+            mask = np.array(mask)
+            mask = np.expand_dims(mask, axis=[0, 1])
+            mask = torch.tensor(mask, device=device, dtype=dtype)
+            
             # Downsample Mask
-            downsampled_mask = F.interpolate(mask, scale_factor=1/8).to(device).type(dtype)
+            downsampled_mask = F.interpolate(mask, scale_factor=1/8, mode='bicubic').to(device)
             downsampled_mask = scale_img(downsampled_mask, (0, 255), (0, 1))
             downsampled_mask = downsampled_mask.type(torch.bool)
+            downsampled_mask = downsampled_mask.repeat(n_samples, 1, 1, 1)
             
+            # Encoding Image
+            self.vae.to(device)
+            encoder_noise = torch.randn((1, *latent_shape[1:]), generator=generator, device=device)
+            encoded_img, _, _ =  self.vae.encode(transformed_imgs, encoder_noise)
+            encoded_img = encoded_img.repeat(n_samples, 1, 1, 1)
+            
+            latents_noise = torch.randn(latent_shape, generator=generator, device=device, dtype=dtype)
+            sampler.set_strength(strength)
+            latent_features, _ = sampler.forward_process(encoded_img, sampler.timesteps[0].unsqueeze(0), latents_noise)
+
+            # Noise for masked part
+            noise_features = torch.randn(latent_shape, generator=generator, device=device,  dtype=dtype)
+            latent_features = torch.where(downsampled_mask.repeat(1, latent_shape[1], 1, 1), noise_features, latent_features)
+            
+            self.vae.to('cpu')
+
             # Denoising
             timesteps = tqdm(sampler.timesteps.to(device), leave=0, position=0)
             self.unet.to(device)
@@ -350,12 +385,12 @@ class StableDiffusion(nn.Module):
                     pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
 
                 # Add noise
-                noised_latent_features, _ = sampler.forward_process(encoded_img, timestep, pred_noise)
+                noised_orig_img, _ = sampler.forward_process(encoded_img, timestep, pred_noise)
 
                 # Only denoise masked part
-                latent_features = torch.where(~downsampled_mask.repeat(1, latent_shape[1], 1, 1), noised_latent_features, latent_features)
+                latent_features = torch.where(~downsampled_mask.repeat(1, latent_shape[1], 1, 1), noised_orig_img, latent_features)
                 latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
-                
+                  
             self.unet.to('cpu')
             self.vae.to(device)
             generated_imgs = self.vae.decode(latent_features.to(device))
@@ -367,8 +402,8 @@ class StableDiffusion(nn.Module):
     
             # Reset inference steps
             sampler._set_inference_steps(sampler.noise_step)
-            
-            return generated_imgs[0]
+            torch.mps.empty_cache()
+            return generated_imgs
             
     def forward(self, images: torch.Tensor, labels: torch.Tensor, loss_fn: nn.Module):
 
