@@ -8,30 +8,34 @@ import os
 from torchvision import transforms
 import numpy as np
 import argparse
+from torchinfo import summary
+from models.lora import get_lora_model
+from transformers import CLIPTokenizer
+from utils.utils import load_model
 
-def train_step(model: nn.Module,
+def train_step(model: StableDiffusion,
                ema_model: EMA,
                train_dataloader: torch.utils.data.DataLoader,
                device: torch.device,
                optimizer: torch.optim.Optimizer,
                loss_fn: nn.Module,
                uncondition_prob: float,
-               epoch: int):
+               epoch: int,
+               tokenizer: CLIPTokenizer):
     
     train_loss = 0.
     model.train()
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
-    for i, (imgs, labels) in enumerate(pbar):
+    for i, (imgs, prompt) in enumerate(pbar):
         imgs = imgs.to(device)
         
-        labels = torch.argmax(labels, dim=1) + 1
         # CFG: Unconditional pass
         if np.random.random() < uncondition_prob:
-           labels = torch.zeros(labels.shape)
+           prompt = ['' for _ in range(imgs.shape[0])]
+        prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(prompt, padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
         
-        labels = labels.type(torch.LongTensor).to(device)
             
-        loss, unet_loss, vae_loss = model(imgs, labels, loss_fn=loss_fn)
+        loss, _ = model(imgs, prompt_tokens, loss_fn=loss_fn)
         train_loss += loss.item()
         
         optimizer.zero_grad()
@@ -41,7 +45,7 @@ def train_step(model: nn.Module,
         if ema_model is not None:
             ema_model.step(model)
 
-        pbar.set_postfix({"loss": f"{loss.item():.4f}", "unet_loss": f"{unet_loss:.4f}", "vae_loss": f"{vae_loss:.4f}"})
+        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
     
     train_loss /= len(train_dataloader)
     return train_loss
@@ -50,7 +54,7 @@ def test_step(model: nn.Module,
               test_dataloader: torch.utils.data.DataLoader, 
               device: torch.device, 
               loss_fn: nn.Module,
-              tokenizer=None):
+              tokenizer: CLIPTokenizer):
     
     test_loss = 0.
 
@@ -59,11 +63,10 @@ def test_step(model: nn.Module,
     with torch.no_grad():
         for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True)):
             imgs = imgs.to(device)
-
-            labels = torch.argmax(labels, dim=1) + 1
-            labels = labels.type(torch.LongTensor).to(device)
             
-            loss, _, _ = model(imgs, labels, loss_fn=loss_fn)
+            labels = torch.tensor(tokenizer.batch_encode_plus([labels], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+            
+            loss, _ = model(imgs, labels, loss_fn=loss_fn)
 
             test_loss += loss.item()
             
@@ -71,7 +74,8 @@ def test_step(model: nn.Module,
     return test_loss
 
 
-def train(model: nn.Module, 
+def train(model: StableDiffusion, 
+          tokenizer: CLIPTokenizer,
           train_dataloader: torch.utils.data.DataLoader, 
           test_dataloader: torch.utils.data.DataLoader, 
           epochs: int, 
@@ -99,12 +103,14 @@ def train(model: nn.Module,
                                 uncondition_prob=0.1,
                                 optimizer=optimizer,
                                loss_fn=loss_fn,
-                               epoch=epoch)
+                               epoch=epoch,
+                               tokenizer=tokenizer)
 
         test_loss = test_step(model=model,
                               test_dataloader=test_dataloader,
                               device=device,
-                             loss_fn=loss_fn)
+                             loss_fn=loss_fn,
+                             tokenizer=tokenizer)
 
         lr_scheduler.step(test_loss)
         
@@ -125,11 +131,14 @@ def train(model: nn.Module,
     print("Model saved at: ", os.path.join(save_dir, "stable_diffusion_final.ckpt"))
     return results
 
+    
 NUM_WORKERS = os.cpu_count()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training Arguments')
     parser.add_argument('--device', default='cpu', type=str, help='Choose device to train')
+    parser.add_argument('--model_path', default='./weights/model/v1-5-pruned-emaonly.ckpt', help='Model path')
+    parser.add_argument('--tokenizer_dir', default='./weights/tokenizer/', help='Tokenizer dir')
     parser.add_argument('--data_dir', default='data/sprites', type=str, help='Data directory')
     parser.add_argument('--img_size', default=32, type=int, help='Image size')
     parser.add_argument('--batch_size', default=32, type=int, help="Batch size")
@@ -138,14 +147,19 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
     parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
+    parser.add_argument('--use_lora', default=False, type=bool, help='Option to use LoRA in training')
 
-    
-    
     args = parser.parse_args()
 
-    train_dataloader, test_dataloader, num_classes = datasets.create_dataloaders(data_dir=args.data_dir, img_size=(args.img_size, args.img_size), train_test_split=0.8, batch_size=args.batch_size, num_workers=NUM_WORKERS)
+    train_dataloader, test_dataloader = datasets.create_dataloaders(data_dir=args.data_dir, img_size=(args.img_size, args.img_size), train_test_split=1.0, batch_size=args.batch_size, num_workers=NUM_WORKERS)
 
-    model = StableDiffusion(model_type='class2img', num_classes=num_classes).to(args.device)
+    model, tokenizer = load_model(args)
+    
+    if args.use_lora:
+        model = get_lora_model(model)
+        
+    model = model.to(device=args.device)
+        
     optimizer = torch.optim.SGD(params=model.parameters(), lr=args.lr)
     
     # Define Loss Function
@@ -162,5 +176,4 @@ if __name__ == '__main__':
     # Define lr scheduler
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     
-    train(model, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir, start_epoch=start_epoch)
-    
+    train(model, tokenizer, train_dataloader, test_dataloader, epochs=300, device=args.device, optimizer=optimizer, lr_scheduler=lr_scheduler, loss_fn=loss_fn, save_dir=args.save_dir, checkpoint_dir=args.checkpoint_dir, start_epoch=start_epoch)

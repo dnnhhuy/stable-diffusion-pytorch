@@ -1,19 +1,20 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.utils import parametrize
 from .attention import MultiheadSelfAttention
 from .activation_fn import GeGELU
 from typing import Optional, List
-
+from .lora import parametrize_linear_layer
         
 class UNet_TransformerEncoder(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int, use_lora: bool):
         super().__init__()
         channels = embedding_dim * num_heads
         self.groupnorm = nn.GroupNorm(32, channels)
         self.conv_input = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
 
-        self.transformer_block = UNet_AttentionBlock(num_heads=num_heads, embedding_dim=channels, cond_dim=cond_dim)
+        self.transformer_block = UNet_AttentionBlock(num_heads=num_heads, embedding_dim=channels, cond_dim=cond_dim, use_lora=use_lora)
 
         self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
         
@@ -39,7 +40,7 @@ class UNet_TransformerEncoder(nn.Module):
         return x
         
 class UNet_AttentionBlock(nn.Module):
-    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int):
+    def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int, use_lora: bool=False):
         super().__init__()
         
         if embedding_dim % num_heads:
@@ -58,7 +59,20 @@ class UNet_AttentionBlock(nn.Module):
         self.ffn = nn.Sequential(
             GeGELU(embedding_dim, embedding_dim * 4),
             nn.Linear(embedding_dim * 4, embedding_dim))
-        
+
+        if use_lora:
+            self.attn1.proj_q.parametrizations.weight[0].enabled = True
+            self.attn1.proj_k.parametrizations.weight[0].enabled = True
+            self.attn1.proj_v.parametrizations.weight[0].enabled = True
+            self.attn1.proj_out.parametrizations.weight[0].enabled = True
+            
+            self.attn2.proj_q.parametrizations.weight[0].enabled = True
+            self.attn2.proj_k.parametrizations.weight[0].enabled = True
+            self.attn2.proj_v.parametrizations.weight[0].enabled = True
+            self.attn2.proj_out.parametrizations.weight[0].enabled = True
+            
+            
+            
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         residual_x = x
@@ -174,7 +188,7 @@ class UNet_Upsample(nn.Module):
         return self.conv(x)
     
 class UNet_Encoder(nn.Module):
-    def __init__(self, in_channels: int=4, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
+    def __init__(self, in_channels: int=4, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4], use_lora: bool=False):
         super().__init__()
         ch = 320
         
@@ -190,8 +204,8 @@ class UNet_Encoder(nn.Module):
             
             if i != len(ch_multiplier) - 1:
                 block = nn.Sequential(
-                    TimeStepSequential(UNet_ResBlock(in_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim)),
-                    TimeStepSequential(UNet_ResBlock(out_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim)))
+                    TimeStepSequential(UNet_ResBlock(in_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim, use_lora=use_lora)),
+                    TimeStepSequential(UNet_ResBlock(out_channels, out_channels, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_channels // num_heads, cond_dim=cond_dim, use_lora=use_lora)))
                 downsample = UNet_Downsample(out_channels)
             else:
                 block = nn.Sequential(
@@ -220,7 +234,7 @@ class UNet_Encoder(nn.Module):
         return x, skip_connections
 
 class UNet_Decoder(nn.Module):
-    def __init__(self, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4]):
+    def __init__(self, num_heads: int=8, t_embed_dim: int=1280, cond_dim: int=768, ch_multiplier=[1, 2, 4, 4], use_lora: bool=False):
         super().__init__()
         ch = 320
         decoder_channels = ch_multiplier + [4]
@@ -241,9 +255,9 @@ class UNet_Decoder(nn.Module):
                     TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim)))
             else:
                 block = nn.Sequential(
-                    TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)), 
-                    TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)),
-                    TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim)))
+                    TimeStepSequential(UNet_ResBlock(in_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim, use_lora=use_lora)), 
+                    TimeStepSequential(UNet_ResBlock(out_ch + out_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim, use_lora=use_lora)),
+                    TimeStepSequential(UNet_ResBlock(out_ch + mid_ch, out_ch, t_embed_dim), UNet_TransformerEncoder(num_heads=num_heads, embedding_dim=out_ch // num_heads, cond_dim=cond_dim, use_lora=use_lora)))
             
             if i != 0:
                 upsample = UNet_Upsample(out_ch)
@@ -274,17 +288,17 @@ class UNet_Decoder(nn.Module):
         return x
 
 class UNet(nn.Module):
-    def __init__(self, in_channels: int=4, out_channels: int=4, num_heads: int=8, t_embed_dim: int=320, cond_dim: int=768):
+    def __init__(self, in_channels: int=4, out_channels: int=4, num_heads: int=8, t_embed_dim: int=320, cond_dim: int=768, use_lora=False):
         super().__init__()
         
         self.time_embedding = TimeEmbedding(t_embed_dim)
-        self.encoder = UNet_Encoder(in_channels=in_channels, num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim)
+        self.encoder = UNet_Encoder(in_channels=in_channels, num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim, use_lora=use_lora)
         self.bottleneck = TimeStepSequential(
             UNet_ResBlock(1280, 1280, t_embed_dim * 4),
-            UNet_TransformerEncoder(num_heads=8, embedding_dim=160, cond_dim=cond_dim),
+            UNet_TransformerEncoder(num_heads=8, embedding_dim=160, cond_dim=cond_dim, use_lora=use_lora),
             UNet_ResBlock(1280, 1280, t_embed_dim * 4)
         )
-        self.decoder = UNet_Decoder(num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim)
+        self.decoder = UNet_Decoder(num_heads=num_heads, t_embed_dim=t_embed_dim * 4, cond_dim=cond_dim, use_lora=use_lora)
         self.output = nn.Sequential(
             nn.GroupNorm(32, 320),
             nn.SiLU(),

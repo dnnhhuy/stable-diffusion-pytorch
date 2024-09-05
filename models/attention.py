@@ -1,10 +1,8 @@
 import torch
 from torch import nn
 import math
-import logging
-from typing import Optional
-
-
+from torch.nn.utils import parametrize
+from .lora import parametrize_linear_layer
 
 class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True):
@@ -21,6 +19,11 @@ class MultiheadSelfAttention(nn.Module):
         self.head_dim = embedding_dim // self.num_heads
         self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
 
+        # parametrize.register_parametrization(self.proj_q, "weight", parametrization=parametrize_linear_layer(self.proj_q, rank=8, alphas=8))    
+        # parametrize.register_parametrization(self.proj_k, "weight", parametrization=parametrize_linear_layer(self.proj_k, rank=8, alphas=8))  
+        # parametrize.register_parametrization(self.proj_v, "weight", parametrization=parametrize_linear_layer(self.proj_v, rank=8, alphas=8))  
+        # parametrize.register_parametrization(self.proj_out, "weight", parametrization=parametrize_linear_layer(self.proj_out, rank=8, alphas=8))  
+        
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=False) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
         # cond: (n, seq_len, cond_dim)
