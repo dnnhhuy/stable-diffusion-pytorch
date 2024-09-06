@@ -13,9 +13,6 @@ from PIL import Image
 from typing import Tuple
 import gc
 
-
-
-
 def scale_img(x: torch.Tensor, old_range, new_range, clamp=False):
     old_min, old_max = old_range
     new_min, new_max = new_range

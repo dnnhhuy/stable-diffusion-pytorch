@@ -22,7 +22,7 @@ def parametrize_linear_layer(layer, rank, alphas):
     return LoraLayer(features_in, features_out, rank, alphas)
 
 
-def get_lora_model(model: nn.Module):
+def get_lora_model(model: nn.Module, rank: float, alphas: float):
     for param in model.cond_encoder.parameters():
         param.requires_grad = False
     
@@ -32,7 +32,7 @@ def get_lora_model(model: nn.Module):
     peft_module = ['proj_q', 'proj_k', 'proj_v', 'proj_out']
     for name, module in model.unet.named_modules():
        if name.split('.')[-1] in peft_module:
-           parametrize.register_parametrization(module, "weight", parametrization=parametrize_linear_layer(module, rank=8, alphas=8))
+           parametrize.register_parametrization(module, "weight", parametrization=parametrize_linear_layer(module, rank=rank, alphas=alphas))
            module.parametrizations.weight[0].enabled = True
            
     for name, param in model.unet.named_parameters():

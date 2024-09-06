@@ -18,12 +18,7 @@ class MultiheadSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = embedding_dim // self.num_heads
         self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
-
-        # parametrize.register_parametrization(self.proj_q, "weight", parametrization=parametrize_linear_layer(self.proj_q, rank=8, alphas=8))    
-        # parametrize.register_parametrization(self.proj_k, "weight", parametrization=parametrize_linear_layer(self.proj_k, rank=8, alphas=8))  
-        # parametrize.register_parametrization(self.proj_v, "weight", parametrization=parametrize_linear_layer(self.proj_v, rank=8, alphas=8))  
-        # parametrize.register_parametrization(self.proj_out, "weight", parametrization=parametrize_linear_layer(self.proj_out, rank=8, alphas=8))  
-        
+      
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=False) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
         # cond: (n, seq_len, cond_dim)
