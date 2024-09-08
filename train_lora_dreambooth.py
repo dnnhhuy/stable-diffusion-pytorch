@@ -22,15 +22,18 @@ def train_step(model: StableDiffusion,
                device: torch.device,
                optimizer: torch.optim.Optimizer,
                epoch: int,
-               tokenizer: CLIPTokenizer):
+               tokenizer: CLIPTokenizer, 
+               gradient_accumulation_steps: int, 
+               gradient_checkpointing: bool):
     
     prior_loss_weight = 1.
-    accumulate_factor = 8
     
     train_loss = 0.
     model.eval()
     model.unet.train()
-    
+    if gradient_checkpointing:
+        model.unet.gradient_checkpointing_enabled()
+        
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
         imgs = batch['pixel_values'].to(device)
@@ -68,9 +71,9 @@ def train_step(model: StableDiffusion,
         train_loss += loss.item()
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
         
-        loss = loss / accumulate_factor
+        loss = loss / gradient_accumulation_steps
         loss.backward()
-        if ((i + 1) % accumulate_factor == 0) or (i + 1 == len(train_dataloader)):
+        if ((i + 1) % gradient_accumulation_steps == 0) or (i + 1 == len(train_dataloader)):
             optimizer.step()
             optimizer.zero_grad()
         
@@ -116,7 +119,9 @@ def train(model: StableDiffusion,
           checkpoint_dir: str,
           start_epoch: int=0,
          use_ema: bool=False,
-         use_lora: bool=False):
+         use_lora: bool=False,
+         gradient_accumulation_steps: int=1,
+         gradient_checkpointing: bool=False):
     
     results = {'train_loss': [],
               'test_loss': []}
@@ -127,12 +132,14 @@ def train(model: StableDiffusion,
         
     for epoch in range(start_epoch, epochs):
         train_loss = train_step(model=model,
+                                tokenizer=tokenizer,
                                 ema_model=ema_model,
                                 train_dataloader=train_dataloader, 
                                 device=device,
                                 optimizer=optimizer,
-                               epoch=epoch,
-                               tokenizer=tokenizer)
+                                epoch=epoch,
+                                gradient_accumulation_steps=gradient_accumulation_steps,
+                                gradient_checkpointing=gradient_checkpointing)
 
         # lr_scheduler.step(train_loss)
         
@@ -143,8 +150,9 @@ def train(model: StableDiffusion,
         if use_lora:
             save_weights = {}
             for name, params in model.named_parameters():
-                if 'lora' in name:
+                if params.requires_grad:
                     save_weights[name] = params
+                    
             torch.save({
             'epoch': epoch,
             'model_state_dict': save_weights,
@@ -174,11 +182,14 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', default=32, type=int, help='Image size')
     parser.add_argument('--batch_size', default=32, type=int, help="Batch size")
     parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
-    parser.add_argument('--save_dir', default='./checkpoint/', help='Directory to save model')
-    parser.add_argument('--checkpoint_dir', default='./checkpoint/', help='Directory to save checkpoint')
+    parser.add_argument('--save_dir', default='./checkpoints/', help='Directory to save model')
+    parser.add_argument('--checkpoint_dir', default='./checkpoints/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
     parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
     parser.add_argument('--use_lora', default=False, type=bool, help='Option to use LoRA in training')
+    parser.add_argument('--gradient_accumulation_steps', default=1, type=bool, help="Graddient accumulation steps")
+    parser.add_argument('--gradient_checkpointing', default=False, type=bool, help="Apply gradient checkpointing")
+    
 
     args = parser.parse_args()
     model, tokenizer = load_model(args)
@@ -208,6 +219,8 @@ if __name__ == '__main__':
                                                                     num_workers=0,
                                                                     img_size=(args.img_size, args.img_size))
     
+
+    
     train(model, 
           tokenizer, 
           train_dataloader, 
@@ -219,4 +232,6 @@ if __name__ == '__main__':
           save_dir=args.save_dir, 
           checkpoint_dir=args.checkpoint_dir, 
           start_epoch=start_epoch,
-          use_lora=args.use_lora)
+          use_lora=args.use_lora,
+          gradient_accumulation_steps=args.gradient_accumulation_steps,
+          gradient_checkpointing=args.gradient_checkpointing)

@@ -1,12 +1,12 @@
 import torch
-from torch import nn
-from torch.nn import functional as F
-from torch.nn.utils import parametrize
+import torch.utils.checkpoint as checkpoint
+import torch.nn as nn
+import torch.nn.functional as F
 from .attention import MultiheadSelfAttention
 from .activation_fn import GeGELU
 from typing import Optional, List
-from .lora import parametrize_linear_layer
-        
+
+
 class UNet_TransformerEncoder(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int, use_lora: bool):
         super().__init__()
@@ -305,7 +305,11 @@ class UNet(nn.Module):
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
         
         
-
+    def gradient_checkpointing_enabled(self):
+        for name, module in self.encoder.named_modules():
+            if isinstance(module, MultiheadSelfAttention):
+                module.gradient_checkpointing = True
+                
     def forward(self, x: torch.Tensor, timestep: torch.LongTensor, cond: torch.Tensor) -> torch.Tensor:
         # t: (n,) -> (n, 1280)
         t_embed = self.time_embedding(timestep)
