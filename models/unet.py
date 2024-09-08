@@ -15,7 +15,7 @@ class UNet_TransformerEncoder(nn.Module):
         self.conv_input = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
 
         self.transformer_block = UNet_AttentionBlock(num_heads=num_heads, embedding_dim=channels, cond_dim=cond_dim, use_lora=use_lora)
-
+        
         self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
         
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None) -> torch.Tensor:
@@ -323,6 +323,20 @@ class UNet(nn.Module):
         for name, module in self.decoder.named_modules():
             if isinstance(module, UNet_AttentionBlock):
                 module.gradient_checkpointing = True
+    
+    def enable_flash_attn(self):
+        for name, module in self.encoder.named_modules():
+            if isinstance(module, MultiheadSelfAttention):
+                module.use_flash_attention = True
+                
+        for name, module in self.bottleneck.named_modules():
+            if isinstance(module, MultiheadSelfAttention):
+                module.use_flash_attention = True
+                
+        for name, module in self.decoder.named_modules():
+            if isinstance(module, MultiheadSelfAttention):
+                module.use_flash_attention = True
+        
                 
     def forward(self, x: torch.Tensor, timestep: torch.LongTensor, cond: torch.Tensor) -> torch.Tensor:
         # t: (n,) -> (n, 1280)

@@ -26,7 +26,8 @@ def train_step(model: StableDiffusion,
                epoch: int,
                tokenizer: CLIPTokenizer, 
                gradient_accumulation_steps: int, 
-               gradient_checkpointing: bool):
+               gradient_checkpointing: bool,
+               use_flash_attn: bool):
     
     prior_loss_weight = 1.
     
@@ -35,6 +36,9 @@ def train_step(model: StableDiffusion,
     model.unet.train()
     if gradient_checkpointing:
         model.unet.gradient_checkpointing_enabled()
+    
+    if use_flash_attn:
+        model.unet.enable_flash_attn()
         
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
@@ -129,7 +133,8 @@ def train(model: StableDiffusion,
          use_ema: bool=False,
          use_lora: bool=False,
          gradient_accumulation_steps: int=1,
-         gradient_checkpointing: bool=False):
+         gradient_checkpointing: bool=False,
+         use_flash_attn: bool=False):
     
     results = {'train_loss': [],
               'test_loss': []}
@@ -147,7 +152,8 @@ def train(model: StableDiffusion,
                                 optimizer=optimizer,
                                 epoch=epoch,
                                 gradient_accumulation_steps=gradient_accumulation_steps,
-                                gradient_checkpointing=gradient_checkpointing)
+                                gradient_checkpointing=gradient_checkpointing,
+                                use_flash_attn=use_flash_attn)
 
         # lr_scheduler.step(train_loss)
         
@@ -197,8 +203,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_lora', default=False, type=bool, help='Option to use LoRA in training')
     parser.add_argument('--gradient_accumulation_steps', default=1, type=bool, help="Graddient accumulation steps")
     parser.add_argument('--gradient_checkpointing', default=False, type=bool, help="Apply gradient checkpointing")
+    parser.add_argument('--use_flash_attn', default=False, type=bool, help="Option to use Flash Attention")
     
-
     args = parser.parse_args()
     model, tokenizer = load_model(args)
     
@@ -228,19 +234,19 @@ if __name__ == '__main__':
                                                                     img_size=(args.img_size, args.img_size))
     
 
-    summary(model,
-            col_names=["num_params", "trainable"])
-    # train(model, 
-    #       tokenizer, 
-    #       train_dataloader, 
-    #       test_dataloader, 
-    #       epochs=300,
-    #       device=args.device, 
-    #       optimizer=optimizer, 
-    #       lr_scheduler=lr_scheduler, 
-    #       save_dir=args.save_dir, 
-    #       checkpoint_dir=args.checkpoint_dir, 
-    #       start_epoch=start_epoch,
-    #       use_lora=args.use_lora,
-    #       gradient_accumulation_steps=args.gradient_accumulation_steps,
-    #       gradient_checkpointing=args.gradient_checkpointing)
+    
+    train(model, 
+          tokenizer, 
+          train_dataloader, 
+          test_dataloader, 
+          epochs=300,
+          device=args.device, 
+          optimizer=optimizer, 
+          lr_scheduler=lr_scheduler, 
+          save_dir=args.save_dir, 
+          checkpoint_dir=args.checkpoint_dir, 
+          start_epoch=start_epoch,
+          use_lora=args.use_lora,
+          gradient_accumulation_steps=args.gradient_accumulation_steps,
+          gradient_checkpointing=args.gradient_checkpointing,
+          use_flash_attn=args.use_flash_attn)
