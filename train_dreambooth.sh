@@ -8,6 +8,6 @@ python3 train_lora_dreambooth.py \
 --img_size 512 \
 --batch_size 1 \
 --lr 5e-6 \
---use_lora true \
+--use_lora false \
 --gradient_accumulation_steps 8 \
---gradient_checkpointing true
+--gradient_checkpointing false

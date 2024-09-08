@@ -70,22 +70,29 @@ class UNet_AttentionBlock(nn.Module):
             self.attn2.proj_k.parametrizations.weight[0].enabled = True
             self.attn2.proj_v.parametrizations.weight[0].enabled = True
             self.attn2.proj_out.parametrizations.weight[0].enabled = True
-            
-            
-            
-
+        
+        self.gradient_checkpointing = False
+    
     def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         residual_x = x
         x = self.layernorm_1(x)
-        x = self.attn1(x)
+        if self.gradient_checkpointing:
+            x = checkpoint.checkpoint(self.attn1, x, use_reentrant=False)
+        else:
+            x = self.attn1(x)
         x += residual_x
         
         residual_x = x
-        x = self.attn2(self.layernorm_2(x), cond=cond)
+        x = self.layernorm_2(x)
+        if self.gradient_checkpointing:
+            x = checkpoint.checkpoint(self.attn2, x, cond, use_reentrant=False)
+        else:
+            x = self.attn2(x, cond=cond)
         x += residual_x
         
         residual_x = x
-        x = self.ffn(self.layernorm_3(x))
+        x = self.layernorm_3(x)
+        x = self.ffn(x)
 
         x += residual_x
         
@@ -128,7 +135,6 @@ class UNet_ResBlock(nn.Module):
         h = self.groupnorm_2(h)
         h = self.silu_2(h)
         h = self.conv_2(h)
-
 
         x = self.proj_input(x)
         
@@ -307,7 +313,15 @@ class UNet(nn.Module):
         
     def gradient_checkpointing_enabled(self):
         for name, module in self.encoder.named_modules():
-            if isinstance(module, MultiheadSelfAttention):
+            if isinstance(module, UNet_AttentionBlock):
+                module.gradient_checkpointing = True
+                
+        for name, module in self.bottleneck.named_modules():
+            if isinstance(module, UNet_AttentionBlock):
+                module.gradient_checkpointing = True
+                
+        for name, module in self.decoder.named_modules():
+            if isinstance(module, UNet_AttentionBlock):
                 module.gradient_checkpointing = True
                 
     def forward(self, x: torch.Tensor, timestep: torch.LongTensor, cond: torch.Tensor) -> torch.Tensor:

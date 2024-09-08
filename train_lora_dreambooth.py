@@ -15,6 +15,8 @@ from transformers import CLIPTokenizer
 from utils.utils import load_model
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+import gc
+
 
 def train_step(model: StableDiffusion,
                ema_model: EMA,
@@ -55,11 +57,11 @@ def train_step(model: StableDiffusion,
             # Actual noise
             timesteps = sampler._sample_timestep(imgs.shape[0]).to(device)
             x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
-            actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
+            
+        actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
 
         # Predict noise
         pred_noise = model.unet(x_t, timesteps, text_embeddings)
-        
         pred_instance_noise, pred_class_prior_noise = pred_noise.chunk(2, dim=0)
         
         # Instance loss
@@ -73,9 +75,15 @@ def train_step(model: StableDiffusion,
         
         loss = loss / gradient_accumulation_steps
         loss.backward()
+        
         if ((i + 1) % gradient_accumulation_steps == 0) or (i + 1 == len(train_dataloader)):
             optimizer.step()
             optimizer.zero_grad()
+            if device == 'mps':
+                torch.mps.empty_cache()
+            elif device == 'cuda':
+                torch.cuda.empty_cache()
+            gc.collect()
         
         if ema_model is not None:
             ema_model.step(model)
@@ -220,18 +228,19 @@ if __name__ == '__main__':
                                                                     img_size=(args.img_size, args.img_size))
     
 
-    
-    train(model, 
-          tokenizer, 
-          train_dataloader, 
-          test_dataloader, 
-          epochs=300,
-          device=args.device, 
-          optimizer=optimizer, 
-          lr_scheduler=lr_scheduler, 
-          save_dir=args.save_dir, 
-          checkpoint_dir=args.checkpoint_dir, 
-          start_epoch=start_epoch,
-          use_lora=args.use_lora,
-          gradient_accumulation_steps=args.gradient_accumulation_steps,
-          gradient_checkpointing=args.gradient_checkpointing)
+    summary(model,
+            col_names=["num_params", "trainable"])
+    # train(model, 
+    #       tokenizer, 
+    #       train_dataloader, 
+    #       test_dataloader, 
+    #       epochs=300,
+    #       device=args.device, 
+    #       optimizer=optimizer, 
+    #       lr_scheduler=lr_scheduler, 
+    #       save_dir=args.save_dir, 
+    #       checkpoint_dir=args.checkpoint_dir, 
+    #       start_epoch=start_epoch,
+    #       use_lora=args.use_lora,
+    #       gradient_accumulation_steps=args.gradient_accumulation_steps,
+    #       gradient_checkpointing=args.gradient_checkpointing)
