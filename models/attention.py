@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import math
 import torch.nn.functional as F
-from flash_attn, flash_attn_func
+from flash_attn import flash_attn_func
 
 class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True, dropout: float=0.0):
@@ -51,11 +51,12 @@ class MultiheadSelfAttention(nn.Module):
     
     def flash_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, lookahead_mask: bool):
         batch_size, seq_len, embedding_dim = q.shape
-        qkv = torch.stack((q, k, v), dim=2)
         
-        qkv = qkv.view(batch_size, seq_len, 3, self.n_heads, self.d_head)
+        q = q.view(*q.shape[:2], self.num_heads, self.head_dim)
+        k = k.view(*k.shape[:2], self.num_heads, self.head_dim)
+        v = v.view(*v.shape[:2], self.num_heads, self.head_dim)
         
-        out = flash_attn_func(q, k, v, dropout=self.dropout, softmax_scale=self.head_dim ** -0.5, causal=lookahead_mask)
+        out = flash_attn_func(q, k, v, dropout_p=self.dropout, softmax_scale=self.head_dim ** -0.5, causal=lookahead_mask)
         
         out = out.reshape((batch_size, seq_len, embedding_dim))
         
