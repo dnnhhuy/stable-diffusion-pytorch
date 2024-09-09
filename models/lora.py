@@ -5,7 +5,8 @@ import torch.nn.utils.parametrize as parametrize
 class LoraLayer(nn.Module):
     def __init__(self, features_in, features_out, rank=1, alphas=1):
         super().__init__()
-        self.scale = rank / alphas
+        self.alphas = alphas
+        self.scale = rank / self.alphas
         self.enabled = False
         self.lora_A = nn.Parameter(torch.zeros((rank, features_out)))
         self.lora_B = nn.Parameter(torch.zeros((features_in, rank)))

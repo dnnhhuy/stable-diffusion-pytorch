@@ -2,7 +2,12 @@ import torch
 from torch import nn
 import math
 import torch.nn.functional as F
-from flash_attn import flash_attn_func
+
+try:
+    from flash_attn import flash_attn_func
+except ImportError:
+    flash_attn_func = None
+    
 
 class MultiheadSelfAttention(nn.Module):
     def __init__(self, num_heads: int, embedding_dim: int, cond_dim: int=None, qkv_bias=True, proj_out_bias=True, dropout: float=0.0):
@@ -81,7 +86,7 @@ class MultiheadSelfAttention(nn.Module):
         k = self.proj_k(cond)
         v = self.proj_v(cond)
         
-        if self.use_flash_attention and self.head_dim <= 128:
+        if self.use_flash_attention and self.head_dim <= 128 and flash_attn_func is not None:
             return self.flash_attention(q, k, v, lookahead_mask)
         
         else:

@@ -98,14 +98,13 @@ class StableDiffusion(nn.Module):
             
                 
             if do_cfg:
-                cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
-                uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
-                
+                cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77, truncation=True).input_ids, dtype=torch.long, device=device)
+                uncond_tokens = torch.tensor(tokenizer.batch_encode_plus([uncond_prompt], padding='max_length', max_length=77, truncation=True).input_ids, dtype=torch.long, device=device)
                 context = torch.cat([cond_tokens, uncond_tokens], dim=0)
                 context_embedding = self.cond_encoder(context)
     
             else:
-                cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+                cond_tokens = torch.tensor(tokenizer.batch_encode_plus([prompt], padding='max_length', max_length=77, truncation=True).input_ids, dtype=torch.long, device=device)
                 context_embedding = self.cond_encoder(cond_tokens)
             
             self.cond_encoder.to('cpu')

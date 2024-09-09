@@ -9,7 +9,6 @@ import time
 from utils.utils import load_model, create_tokenizer
 from models.lora import get_lora_model
 
-
 def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None):
     output_images = []
     for i in range(args.n_samples):
@@ -68,7 +67,7 @@ if __name__ == '__main__':
     
     tokenizer = create_tokenizer(args.tokenizer_dir)
     if args.lora_ckpt:
-        model = get_lora_model(model)
+        model = get_lora_model(model, rank=8, alphas=16)
         model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")['model_state_dict'], strict=False)
       
     output_images = inference(args, model, tokenizer, input_image)
