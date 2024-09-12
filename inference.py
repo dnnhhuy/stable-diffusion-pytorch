@@ -7,7 +7,7 @@ from PIL import Image
 import argparse
 import time
 from utils.utils import load_model, create_tokenizer
-from models.lora import get_lora_model
+from models.lora import get_lora_model, enable_lora
 
 def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None):
     output_images = []
@@ -66,8 +66,11 @@ if __name__ == '__main__':
     model, tokenizer = load_model(args)
     
     tokenizer = create_tokenizer(args.tokenizer_dir)
+    
     if args.lora_ckpt:
-        model = get_lora_model(model, rank=8, alphas=16)
+        model.unet = get_lora_model(model.unet, rank=8, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
+        model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
+        
         model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")['model_state_dict'], strict=False)
       
     output_images = inference(args, model, tokenizer, input_image)

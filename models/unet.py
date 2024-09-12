@@ -311,18 +311,18 @@ class UNet(nn.Module):
             nn.Conv2d(320, out_channels, kernel_size=3, stride=1, padding=1))
         
         
-    def gradient_checkpointing_enabled(self):
+    def gradient_checkpointing_enabled(self, enabled=False):
         for name, module in self.encoder.named_modules():
             if isinstance(module, UNet_AttentionBlock):
-                module.gradient_checkpointing = True
+                module.gradient_checkpointing = enabled
                 
         for name, module in self.bottleneck.named_modules():
             if isinstance(module, UNet_AttentionBlock):
-                module.gradient_checkpointing = True
+                module.gradient_checkpointing = enabled
                 
         for name, module in self.decoder.named_modules():
             if isinstance(module, UNet_AttentionBlock):
-                module.gradient_checkpointing = True
+                module.gradient_checkpointing = enabled
     
     def enable_flash_attn(self):
         for name, module in self.encoder.named_modules():

@@ -10,7 +10,7 @@ from utils import datasets
 import os
 import argparse
 from torchinfo import summary
-from models.lora import get_lora_model
+from models.lora import get_lora_model, enable_lora
 from transformers import CLIPTokenizer
 from utils.utils import load_model
 from torch.utils.data import DataLoader
@@ -25,20 +25,13 @@ def train_step(model: StableDiffusion,
                optimizer: torch.optim.Optimizer,
                epoch: int,
                tokenizer: CLIPTokenizer, 
-               gradient_accumulation_steps: int, 
-               gradient_checkpointing: bool,
-               use_flash_attn: bool):
+               gradient_accumulation_steps: int):
     
     prior_loss_weight = 1.
     
     train_loss = 0.
     model.eval()
     model.unet.train()
-    if gradient_checkpointing:
-        model.unet.gradient_checkpointing_enabled()
-    
-    if use_flash_attn:
-        model.unet.enable_flash_attn()
         
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
@@ -143,6 +136,12 @@ def train(model: StableDiffusion,
     if use_ema:
         ema_model = EMA(model=model, beta=0.995)
         
+    if gradient_checkpointing:
+        model.unet.gradient_checkpointing_enabled(enabled=True)
+        
+    if use_flash_attn:
+        model.unet.enable_flash_attn()
+        
     for epoch in range(start_epoch, epochs):
         train_loss = train_step(model=model,
                                 tokenizer=tokenizer,
@@ -151,11 +150,9 @@ def train(model: StableDiffusion,
                                 device=device,
                                 optimizer=optimizer,
                                 epoch=epoch,
-                                gradient_accumulation_steps=gradient_accumulation_steps,
-                                gradient_checkpointing=gradient_checkpointing,
-                                use_flash_attn=use_flash_attn)
+                                gradient_accumulation_steps=gradient_accumulation_steps)
 
-        # lr_scheduler.step(train_loss)
+        lr_scheduler.step(train_loss)
         
         print(f"Train Loss: {train_loss} | Current LR: {lr_scheduler.get_last_lr()}")
 
@@ -209,7 +206,13 @@ if __name__ == '__main__':
     model, tokenizer = load_model(args)
     
     if args.use_lora:
-        model = get_lora_model(model, rank=8, alphas=16)
+        model.unet = get_lora_model(model.unet,
+                                    rank=8, 
+                                    alphas=16, 
+                                    lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
+        model.unet = enable_lora(model.unet, 
+                                 lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'],
+                                 enabled=True)
         
     model = model.to(device=args.device)
         

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
+from typing import List
 
 class LoraLayer(nn.Module):
     def __init__(self, features_in, features_out, rank=1, alphas=1):
@@ -22,21 +23,19 @@ def parametrize_linear_layer(layer, rank, alphas):
     features_in, features_out = layer.weight.shape
     return LoraLayer(features_in, features_out, rank, alphas)
 
+def enable_lora(model: nn.Module, lora_modules: List[str], enabled=False):
+    for name, module in model.named_modules():
+       if name.split('.')[-1] in lora_modules:
+           module.parametrizations.weight[0].enabled = True
+    return model
 
-def get_lora_model(model: nn.Module, rank: float, alphas: float):
-    for param in model.cond_encoder.parameters():
-        param.requires_grad = False
-    
-    for param in model.vae.parameters():
-        param.requires_grad = False
-        
-    peft_module = ['proj_q', 'proj_k', 'proj_v', 'proj_out']
-    for name, module in model.unet.named_modules():
-       if name.split('.')[-1] in peft_module:
+def get_lora_model(model: nn.Module, rank: float, alphas: float, lora_modules=List[str]):
+    for name, module in model.named_modules():
+       if name.split('.')[-1] in lora_modules:
            parametrize.register_parametrization(module, "weight", parametrization=parametrize_linear_layer(module, rank=rank, alphas=alphas))
            module.parametrizations.weight[0].enabled = True
            
-    for name, param in model.unet.named_parameters():
+    for name, param in model.named_parameters():
         if 'lora' not in name:
             param.requires_grad = False
     
