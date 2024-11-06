@@ -9,7 +9,6 @@ from tqdm.auto import tqdm
 from utils import datasets
 import os
 import argparse
-from torchinfo import summary
 from models.lora import get_lora_model, enable_lora
 from transformers import CLIPTokenizer
 from utils.utils import load_model
