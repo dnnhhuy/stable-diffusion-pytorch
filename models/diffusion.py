@@ -146,7 +146,7 @@ class StableDiffusion(nn.Module):
                 
                 if do_cfg:
                     cond_output, uncond_output = pred_noise.chunk(2)
-                    pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
+                    pred_noise = cfg_scale * (cond_output - uncond_output) + cond_output
                 
                 latent_features = sampler.reverse_process(latent_features, timestep, pred_noise)
             
@@ -280,7 +280,7 @@ class StableDiffusion(nn.Module):
                 
                 if do_cfg:
                     cond_output, uncond_output = pred_noise.chunk(2)
-                    pred_noise = cfg_scale * (cond_output - uncond_output) + uncond_output
+                    pred_noise = cfg_scale * (cond_output - uncond_output) + cond_output
 
                 # Add noise
                 noised_orig_img, _ = sampler.forward_process(encoded_img, timestep, pred_noise)
