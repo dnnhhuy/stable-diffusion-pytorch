@@ -5,9 +5,9 @@ from PIL import Image
 from typing import Optional
 from PIL import Image
 import argparse
-import time
-from utils.utils import load_model, create_tokenizer
-from models.lora import get_lora_model, enable_lora
+from utils import load_model, create_tokenizer
+from utils import load_lora_weights
+from models import get_lora_model, enable_lora
 
 def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None):
     output_images = []
@@ -51,9 +51,9 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     args.do_cfg = True
-    args.cfg_scale = 7.5
-    args.strength = 0.8
-    args.num_inference_steps = 50
+    args.cfg_scale = 7.0
+    args.strength = 1.0
+    args.num_inference_steps = 30
     args.sampler = 'ddpm'
     args.use_cosine_schedule = False
     args.seed = None
@@ -67,10 +67,21 @@ if __name__ == '__main__':
     
     tokenizer = create_tokenizer(args.tokenizer_dir)
     
-    if args.lora_ckpt:
+    if args.lora_ckpt.endswith(".safetensors"):
+        model.unet = get_lora_model(model.unet, rank=128, alphas=128, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'conv_input', 'conv_output', 'transformer_block.ffn.0.proj', 'transformer_block.ffn.1'])
+        model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'conv_input', 'conv_output', 'transformer_block.ffn.0.proj', 'transformer_block.ffn.1'], enabled=True)
+        model.cond_encoder = get_lora_model(model.cond_encoder, rank=128, alphas=128, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'])
+        model.cond_encoder = enable_lora(model.cond_encoder, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'], enabled=True)
+        
+        state_dict = load_lora_weights(args.lora_ckpt)
+        model.unet.load_state_dict(state_dict=state_dict["unet"], strict=False)
+        model.cond_encoder.load_state_dict(state_dict=state_dict["cond_encoder"], strict=False)
+        
+    elif args.lora_ckpt.endswith(".ckpt"):
         model.unet = get_lora_model(model.unet, rank=8, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
         model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
         
-        model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")['model_state_dict'], strict=False)
-      
+        model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")["model_state_dict"], strict=False)
+            
     output_images = inference(args, model, tokenizer, input_image)
+        
