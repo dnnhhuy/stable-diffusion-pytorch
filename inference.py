@@ -70,7 +70,6 @@ if __name__ == '__main__':
     if args.model_path and args.tokenizer_dir:
         model, tokenizer = load_model(args)
     else:
-        HF_TOKEN_KEY = os.getenv("HF_TOKEN_KEY")
         from huggingface_hub import hf_hub_download
         files_to_download = ["v1-5-pruned-emaonly.ckpt",
                              "tokenizer/merges.txt",
