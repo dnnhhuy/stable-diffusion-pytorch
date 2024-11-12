@@ -39,33 +39,55 @@ def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Inference Arguments')
-    parser.add_argument('--model_path', default='./weights/model/v1-5-pruned-emaonly.ckpt', help='Model path')
-    parser.add_argument('--tokenizer_dir', default='./weights/tokenizer/', help='Tokenizer dir')
-    parser.add_argument('--device', default='cpu', type=str, help='Choose device to train')
-    parser.add_argument('--img_size', default=512, type=int, help='Image size')
-    parser.add_argument('--img_path', default='', type=str, help="Image path")
-    parser.add_argument('--prompt', default='', type=str, help='Input prompt')
-    parser.add_argument('--uncond_prompt', default='', type=str, help='Unconditional prompt')
-    parser.add_argument('--n_samples', default=3, type=int, help='Number of generated images')
-    parser.add_argument('--lora_ckpt', default='', type=str, help='Option to use lora checkpoint')
+    parser.add_argument('--model_path', help='Model path', metavar="", default='')
+    parser.add_argument('--tokenizer_dir', metavar="", default='', help='Tokenizer dir')
+    parser.add_argument('--device', metavar="", default='cpu', type=str, help='Choose device to train')
+    parser.add_argument('--img_size', metavar="", default=512, type=int, help='Image size')
+    parser.add_argument('--img_path', metavar="", default='', type=str, help="Image path")
+    parser.add_argument('--prompt', metavar="", default='', type=str, help='Input prompt')
+    parser.add_argument('--uncond_prompt', metavar="", default='', type=str, help='Unconditional prompt')
+    parser.add_argument('--n_samples', metavar="", default=3, type=int, help='Number of generated images')
+    parser.add_argument('--lora_ckpt', metavar="", default='', type=str, help='Option to use lora checkpoint')
+    parser.add_argument('--do_cfg', metavar="", action=argparse.BooleanOptionalAction, help='Activate CFG')
+    parser.add_argument('--cfg_scale', metavar="", default=7.5, type=float, help="Set classifer-free guidance scale (larger value tends to focus on conditional prompt, smaller value tends to focus on unconditional prompt)")
+    parser.add_argument('--strength', metavar="", default=1.0, type=float, help="Set the strength to generate the image (Given image from the user, the smaller value tends to generate an image closer to the original one)")
+    parser.add_argument('--num_inference_steps', help="Step to generate image", default=50, choices=range(1, 1001), metavar="Value: [1-1000]", type=int)
+    parser.add_argument('--sampler', metavar="", default='ddpm', choices=['ddpm', 'ddim'], type=str, help="Sampling method: 2 options available: DDPM and DDIM")
+    parser.add_argument('--use_cosine_schedule', metavar="", action=argparse.BooleanOptionalAction, help="Activate using cosine function to generate beta values used for adding and remove noise from the image.")
     
     args = parser.parse_args()
-    args.do_cfg = True
-    args.cfg_scale = 7.0
-    args.strength = 1.0
-    args.num_inference_steps = 30
-    args.sampler = 'ddpm'
-    args.use_cosine_schedule = False
     args.seed = None
     
+    if args.do_cfg is None:
+        args.do_cfg = False
+        
+    if args.use_cosine_schedule is None:
+        args.use_cosine_schedule = False
+        
     input_image = None
     if os.path.exists(args.img_path):
         input_image = Image.open(args.img_path)
     
-    
-    model, tokenizer = load_model(args)
-    
-    tokenizer = create_tokenizer(args.tokenizer_dir)
+    if args.model_path and args.tokenizer_dir:
+        model, tokenizer = load_model(args)
+    else:
+        HF_TOKEN_KEY = os.getenv("HF_TOKEN_KEY")
+        from huggingface_hub import hf_hub_download
+        files_to_download = ["v1-5-pruned-emaonly.ckpt",
+                             "tokenizer/merges.txt",
+                             "tokenizer/vocab.json"]
+        for file in files_to_download:
+            file = file.split('/')
+            if len(file) > 1:
+                hf_hub_download(repo_id="stable-diffusion-v1-5/stable-diffusion-v1-5",
+                                subfolder=file[0],
+                                filename=file[-1],
+                                local_dir="./weights/model/")
+            else:
+                hf_hub_download(repo_id="stable-diffusion-v1-5/stable-diffusion-v1-5",
+                                filename=file[0],
+                                local_dir="./weights/model/")
+        
     
     if args.lora_ckpt.endswith(".safetensors"):
         model.unet = get_lora_model(model.unet, rank=128, alphas=128, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'conv_input', 'conv_output', 'transformer_block.ffn.0.proj', 'transformer_block.ffn.1'])
@@ -82,6 +104,7 @@ if __name__ == '__main__':
         model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
         
         model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")["model_state_dict"], strict=False)
+        
             
     output_images = inference(args, model, tokenizer, input_image)
         

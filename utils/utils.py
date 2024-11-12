@@ -18,7 +18,7 @@ def create_model(model_path: str):
     return model
 
 def create_tokenizer(tokenizer_dir): 
-    tokenizer = CLIPTokenizer(os.path.join(tokenizer_dir, 'tokenizer_vocab.json'), merges_file=os.path.join(tokenizer_dir, 'tokenizer_merges.txt'))
+    tokenizer = CLIPTokenizer(os.path.join(tokenizer_dir, 'vocab.json'), merges_file=os.path.join(tokenizer_dir, 'merges.txt'))
     return tokenizer
 
 def load_model(args):
