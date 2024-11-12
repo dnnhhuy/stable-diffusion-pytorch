@@ -1,20 +1,22 @@
-import torch.utils
-import torch.utils.data
+import torch
+from torch import nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
+import gc
+import os
+import argparse
+from tqdm.auto import tqdm
+
 from models.ddpm import DDPMSampler
 from models.ema import EMA
 from models.diffusion import StableDiffusion
-import torch
-from torch import nn
-from tqdm.auto import tqdm
 from utils import datasets
-import os
-import argparse
 from models.lora import get_lora_model, enable_lora
 from transformers import CLIPTokenizer
 from utils.utils import load_model
-from torch.utils.data import DataLoader
-import torch.nn.functional as F
-import gc
+
 
 def train_step(model: StableDiffusion,
                ema_model: EMA,
@@ -30,7 +32,7 @@ def train_step(model: StableDiffusion,
     train_loss = 0.
     model.eval()
     model.unet.train()
-        
+    
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
         imgs = batch['pixel_values'].to(device)
@@ -166,7 +168,10 @@ def train(model: StableDiffusion,
         
     if use_flash_attn:
         model.unet.enable_flash_attn()
-        
+    
+    
+    writer = SummaryWriter(log_dir="./runs/")
+    
     for epoch in range(start_epoch, epochs):
         train_loss = train_step(model=model,
                                 tokenizer=tokenizer,
@@ -185,6 +190,11 @@ def train(model: StableDiffusion,
                               tokenizer=tokenizer)
         
         print(f"Train Loss: {train_loss} | Test Loss: {test_loss}| Current LR: {lr_scheduler.get_last_lr()}")
+        
+        writer.add_scalars(main_tag="Loss", 
+                           tag_scalar_dict={"train_loss": train_loss,
+                                            "test_loss": test_loss},
+                           global_step=epoch)
         
         results['train_loss'].append(train_loss)
         results['test_loss'].append(test_loss)
@@ -206,7 +216,8 @@ def train(model: StableDiffusion,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': train_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
-
+            
+    writer.close()
     print("Saving model...")
     torch.save(model.state_dict(), os.path.join(save_dir, "stable_diffusion_final.ckpt"))
     print("Model saved at: ", os.path.join(save_dir, "stable_diffusion_final.ckpt"))
