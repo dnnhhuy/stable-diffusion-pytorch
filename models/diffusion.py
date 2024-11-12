@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 from typing import Tuple
 import gc
+from transformers import PreTrainedTokenizerFast
 
 def scale_img(x: torch.Tensor, old_range, new_range, clamp=False):
     old_min, old_max = old_range
@@ -61,8 +62,31 @@ class StableDiffusion(nn.Module):
                  sampler: str,
                  use_cosine_schedule: bool,
                  seed: int,
-                 tokenizer=None, 
-                 gr_progress_bar=None) -> torch.Tensor:
+                 tokenizer: PreTrainedTokenizerFast, 
+                 gr_progress_bar=None) -> np.ndarray:
+        """Generate an image.
+
+        Args:
+            input_image (Image.Image): Input image if use image to generate another image
+            img_size (Tuple[int, int]): Size of image
+            prompt (str): Prompt to generate image
+            uncond_prompt (str): Unconditional prompt
+            do_cfg (bool): Whether to use CFG
+            cfg_scale (int): Set classifer-free guidance scale (larger value tends to focus on conditional prompt,
+                            smaller value tends to focus on unconditional prompt)
+            device (torch.device): Device for inference
+            strength (float): Set the strength to generate the image (Given image from the user, the smaller value
+                            tends to generate an image closer to the original one)
+            inference_steps (int): Step to generate an image
+            sampler (str): Sampling method: 2 options available: DDPM and DDIM
+            use_cosine_schedule (bool): Activate using cosine function to generate beta values used for adding and remove noise
+                                        from the image.
+            seed (int): Specify seed for reproducibility
+            tokenizer: tokenizer
+
+        Returns:
+            np.ndarray: numpy array of the image
+        """
 
         dtype = torch.get_default_dtype()
 
@@ -169,26 +193,49 @@ class StableDiffusion(nn.Module):
                 torch.cuda.empty_cache()
             gc.collect()
             
-            return generated_imgs[0]
+        return generated_imgs[0]
 
    
     def inpaint(self, 
-                   input_image: Image.Image,
-                   mask: Image.Image,
-                   img_size: Tuple[int, int],
-                   prompt: str,
-                   uncond_prompt: str,
-                   do_cfg: bool,
-                   cfg_scale: int,
-                   device: torch.device,
-                   strength: float,
-                   inference_steps: int,
-                   sampler: str, 
-                   use_cosine_schedule: bool,
-                   seed: int,
-                   tokenizer=None,
-                   gr_progress_bar=None) -> None:
-        
+                input_image: Image.Image,
+                mask: Image.Image,
+                img_size: Tuple[int, int],
+                prompt: str,
+                uncond_prompt: str,
+                do_cfg: bool,
+                cfg_scale: int,
+                device: torch.device,
+                strength: float,
+                inference_steps: int,
+                sampler: str, 
+                use_cosine_schedule: bool,
+                seed: int,
+                tokenizer: PreTrainedTokenizerFast,
+                gr_progress_bar=None) -> np.ndarray:
+        """Generate an image.
+
+        Args:
+            input_image (Image.Image): Input image if use image to generate another image
+            mask (Image.Image): Image mask for inpainting
+            img_size (Tuple[int, int]): Size of image
+            prompt (str): Prompt to generate image
+            uncond_prompt (str): Unconditional prompt
+            do_cfg (bool): Whether to use CFG
+            cfg_scale (int): Set classifer-free guidance scale (larger value tends to focus on conditional prompt,
+                            smaller value tends to focus on unconditional prompt)
+            device (torch.device): Device for inference
+            strength (float): Set the strength to generate the image (Given image from the user, the smaller value
+                            tends to generate an image closer to the original one)
+            inference_steps (int): Step to generate an image
+            sampler (str): Sampling method: 2 options available: DDPM and DDIM
+            use_cosine_schedule (bool): Activate using cosine function to generate beta values used for adding and remove noise
+                                        from the image.
+            seed (int): Specify seed for reproducibility
+            tokenizer: tokenizer
+
+        Returns:
+            np.ndarray: numpy array of the image
+        """
 
         dtype = torch.get_default_dtype()
 
@@ -306,7 +353,7 @@ class StableDiffusion(nn.Module):
                 torch.cuda.empty_cache()
             gc.collect()
             
-            return generated_imgs[0]
+        return generated_imgs[0]
             
     def forward(self, images: torch.Tensor, labels: torch.Tensor, loss_fn: nn.Module):
 

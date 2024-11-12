@@ -4,19 +4,19 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
+from transformers import CLIPTokenizer
+
 import gc
 import os
 import argparse
 from tqdm.auto import tqdm
+from typing import Dict
 
+from utils import load_model, datasets
+from models import get_lora_model, enable_lora
 from models.ddpm import DDPMSampler
 from models.ema import EMA
 from models.diffusion import StableDiffusion
-from utils import datasets
-from models.lora import get_lora_model, enable_lora
-from transformers import CLIPTokenizer
-from utils.utils import load_model
-
 
 def train_step(model: StableDiffusion,
                ema_model: EMA,
@@ -25,7 +25,23 @@ def train_step(model: StableDiffusion,
                optimizer: torch.optim.Optimizer,
                epoch: int,
                tokenizer: CLIPTokenizer, 
-               gradient_accumulation_steps: int):
+               gradient_accumulation_steps: int) -> float:
+    """Training Step
+        Feed images into model and calculate loss.
+
+    Args:
+        model (StableDiffusion): Object Instance of model
+        ema_model (EMA): Specify Instance of Object EMA model if use EMA
+        train_dataloader (torch.utils.data.DataLoader): Train dataloader
+        device (torch.device): Target device for training
+        optimizer (torch.optim.Optimizer): Optimizer
+        epoch (int): current epoch
+        tokenizer (CLIPTokenizer): Tokenizer
+        gradient_accumulation_steps (int): Step for accumulating gradients
+
+    Returns:
+        float: Value of loss
+    """
     
     prior_loss_weight = 1.
     
@@ -89,9 +105,20 @@ def train_step(model: StableDiffusion,
     return train_loss
         
 def test_step(model: nn.Module,
-              test_dataloader: torch.utils.data.DataLoader, 
+              test_dataloader: DataLoader, 
               device: torch.device,
-              tokenizer: CLIPTokenizer):
+              tokenizer: CLIPTokenizer) -> float:
+    """Evaluate step
+
+    Args:
+        model (nn.Module): Instance object of main model
+        test_dataloader (DataLoader): Test dataloader
+        device (torch.device): Target device for evaluating
+        tokenizer (CLIPTokenizer): tokenizer
+
+    Returns:
+        float: Test loss
+    """
     
     prior_loss_weight = 1.
     
@@ -154,7 +181,7 @@ def train(model: StableDiffusion,
          use_lora: bool=False,
          gradient_accumulation_steps: int=1,
          gradient_checkpointing: bool=False,
-         use_flash_attn: bool=False):
+         use_flash_attn: bool=False) -> Dict:
     
     results = {'train_loss': [],
               'test_loss': []}
@@ -201,9 +228,14 @@ def train(model: StableDiffusion,
         
         if use_lora:
             save_weights = {}
-            for name, params in model.named_parameters():
-                if params.requires_grad:
-                    save_weights[name] = params
+            if use_ema:
+                for name, params in model.named_parameters():
+                    if params.requires_grad:
+                        save_weights[name] = ema_model.ema_model.get_parameter(name)
+            else:
+                for name, params in model.named_parameters():
+                    if params.requires_grad:
+                        save_weights[name] = params
                     
             torch.save({
             'epoch': epoch,
@@ -211,11 +243,18 @@ def train(model: StableDiffusion,
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': train_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_lora_epoch_{epoch}.ckpt"))
         else:
-            torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'train_loss': train_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
+            if use_ema:
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': ema_model.ema_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
+            else:
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss}, os.path.join(checkpoint_dir, f"stable_diffusion_epoch_{epoch}.ckpt"))
             
     writer.close()
     print("Saving model...")

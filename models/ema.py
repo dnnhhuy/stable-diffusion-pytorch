@@ -1,9 +1,11 @@
 import copy
 import torch
+import torch.nn as nn
 
 class EMA:
-    def __init__(self, model, beta, start_ema: int=2000):
-        self.ema_model = copy.deepcopy(model).eval().requires_grad(False)
+    def __init__(self, model: nn.Module, beta: float=0.995, start_ema: int=2000):
+        self.ema_model = copy.deepcopy(model)
+        self.ema_model.eval().requires_grad(False)
         self.beta = beta
         self.step = 0
         self.start_ema = start_ema

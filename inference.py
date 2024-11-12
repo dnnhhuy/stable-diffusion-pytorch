@@ -2,14 +2,13 @@ import os
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 import torch
 from PIL import Image
-from typing import Optional
-from PIL import Image
+from typing import Optional, List
 import argparse
 from utils import load_model, create_tokenizer
 from utils import load_lora_weights
 from models import get_lora_model, enable_lora
 
-def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None):
+def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None) -> List[Image.Image]:
     output_images = []
     for i in range(args.n_samples):
         output_image = model.generate(
