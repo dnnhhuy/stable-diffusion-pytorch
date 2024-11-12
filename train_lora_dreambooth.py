@@ -16,7 +16,6 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import gc
 
-
 def train_step(model: StableDiffusion,
                ema_model: EMA,
                train_dataloader: torch.utils.data.DataLoader,
@@ -89,25 +88,52 @@ def train_step(model: StableDiffusion,
         
 def test_step(model: nn.Module,
               test_dataloader: torch.utils.data.DataLoader, 
-              device: torch.device, 
-              loss_fn: nn.Module,
+              device: torch.device,
               tokenizer: CLIPTokenizer):
     
+    prior_loss_weight = 1.
+    
     test_loss = 0.
-
     model.eval()
     
-    with torch.no_grad():
-        for i, (imgs, labels) in enumerate(tqdm(test_dataloader, position=0, leave=True)):
-            imgs = imgs.to(device)
+    pbar = tqdm(test_dataloader, leave=True, position=0, desc=f"Evaluating:", ncols=100)
+    for i, batch in enumerate(pbar):
+        imgs = batch['pixel_values'].to(device)
+        
+        prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(batch['prompts'], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+        
+        device = imgs.device
+        sampler = DDPMSampler()
+        
+        with torch.no_grad():
+            model.cond_encoder.to(device)
+            text_embeddings = model.cond_encoder(prompt_tokens)
+            model.cond_encoder.to("cpu")
             
-            labels = torch.tensor(tokenizer.batch_encode_plus([labels], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+            model.vae.to(device)
+            latent_features, mean, stdev = model.vae.encode(imgs)
+            model.vae.to("cpu")
             
-            loss, _ = model(imgs, labels, loss_fn=loss_fn)
+            # Actual noise
+            timesteps = sampler._sample_timestep(imgs.shape[0]).to(device)
+            x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
+            
+            actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
 
-            test_loss += loss.item()
+            # Predict noise
+            pred_noise = model.unet(x_t, timesteps, text_embeddings)
+            pred_instance_noise, pred_class_prior_noise = pred_noise.chunk(2, dim=0)
             
-    test_loss /= len(test_dataloader)
+            # Instance loss
+            loss = F.mse_loss(pred_instance_noise, actual_instance_noise, reduction="mean")
+            
+            # Class Prior Preservation Loss
+            loss += F.mse_loss(pred_class_prior_noise, actual_class_prior_noise, reduction="mean") * prior_loss_weight
+            
+            test_loss += loss.item()
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+
+    test_loss /= len(train_dataloader)
     return test_loss
 
 
@@ -153,9 +179,15 @@ def train(model: StableDiffusion,
 
         lr_scheduler.step(train_loss)
         
-        print(f"Train Loss: {train_loss} | Current LR: {lr_scheduler.get_last_lr()}")
-
+        test_loss = test_step(model=model,
+                              test_dataloader=test_dataloader,
+                              device=device,
+                              tokenizer=tokenizer)
+        
+        print(f"Train Loss: {train_loss} | Test Loss: {test_loss}| Current LR: {lr_scheduler.get_last_lr()}")
+        
         results['train_loss'].append(train_loss)
+        results['test_loss'].append(test_loss)
         
         if use_lora:
             save_weights = {}
@@ -230,7 +262,7 @@ if __name__ == '__main__':
     
     train_dataloader, test_dataloader = datasets.create_dataloaders(instance_data_dir=os.path.join(args.data_dir, "instance_data"), 
                                                                     class_data_dir=os.path.join(args.data_dir, "class_prior_data"),
-                                                                    train_test_split=1.0,
+                                                                    train_test_split=0.8,
                                                                     batch_size=args.batch_size,
                                                                     num_workers=0,
                                                                     img_size=(args.img_size, args.img_size))
