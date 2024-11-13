@@ -6,6 +6,8 @@ import argparse
 from PIL import Image
 import os
 
+
+device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 def initialize_model():
     args = {"model_path": "./weights/model/v1-5-pruned-emaonly.ckpt",
             "tokenizer_dir": "./weights/model/tokenizer/"}
@@ -52,7 +54,7 @@ def txt2img(prompt,
             "uncond_prompt": uncond_prompt,
             "do_cfg": True,
             "cfg_scale": cfg_scale,
-            "device": "mps",
+            "device": device,
             "strength": strength,
             "num_inference_steps": inference_steps,
             "sampler": sampler, 
@@ -97,7 +99,7 @@ def img2img(input_images,
             "uncond_prompt": uncond_prompt,
             "do_cfg": True,
             "cfg_scale": cfg_scale,
-            "device": "mps",
+            "device": device,
             "strength": strength,
             "num_inference_steps": inference_steps,
             "sampler": sampler, 
@@ -146,7 +148,7 @@ def inpaint(input_image,
             "uncond_prompt": uncond_prompt,
             "do_cfg": True,
             "cfg_scale": cfg_scale,
-            "device": "mps",
+            "device": device,
             "strength": strength,
             "num_inference_steps": inference_steps,
             "sampler": sampler, 

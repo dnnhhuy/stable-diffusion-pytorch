@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -13,6 +14,7 @@ from typing import Tuple
 import gc
 from transformers import PreTrainedTokenizerFast
 
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 def scale_img(x: torch.Tensor, old_range, new_range, clamp=False):
     old_min, old_max = old_range
     new_min, new_max = new_range
@@ -287,7 +289,7 @@ class StableDiffusion(nn.Module):
             mask = mask.resize(img_size)
             mask = np.array(mask)
             mask = np.expand_dims(mask, axis=[0, 1])
-            mask = torch.tensor(mask, device=device, dtype=dtype)
+            mask = torch.tensor(mask, device="cpu", dtype=dtype)
             
             # Downsample Mask
             downsampled_mask = F.interpolate(mask, scale_factor=1/8, mode='bicubic').to(device)
