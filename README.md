@@ -15,6 +15,7 @@ Summary of what implemented in this repository:
 * EMA (Exponentially mean averages)
 * Gradient Checkpointing
 * Gradient Accumulation
+* Flash Attention
 * Demo App using Gradio
 
 ## Workflow
