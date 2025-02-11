@@ -7,8 +7,9 @@ python3 train_lora_dreambooth.py \
 --data_dir ./data/dreambooth \
 --img_size 512 \
 --batch_size 1 \
---lr 5e-6 \
---use_lora true \
+--lr 1e-6 \
 --gradient_accumulation_steps 8 \
+--max_train_steps 1000 \
+--use_lora false \
 --gradient_checkpointing true \
---use_flash_attn true
+--use_flash_attn false

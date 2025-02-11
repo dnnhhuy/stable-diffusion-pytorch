@@ -1,5 +1,7 @@
 import os
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+
+import math
 import torch
 from PIL import Image
 from typing import Optional, List
@@ -9,9 +11,10 @@ from utils import load_lora_weights
 from models import get_lora_model, enable_lora
 
 def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None) -> List[Image.Image]:
-    output_images = []
-    for i in range(args.n_samples):
-        output_image = model.generate(
+    outputs = []
+    iterations = math.ceil(args.n_samples / args.batch_size)
+    for i in range(iterations):
+        generated_images = model.generate(
             input_image=input_image,
             img_size=(args.img_size, args.img_size),
             prompt=args.prompt,
@@ -24,17 +27,18 @@ def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None)
             sampler=args.sampler,
             use_cosine_schedule=args.use_cosine_schedule,
             seed=args.seed,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
         )
-        output_images.append(output_image)
+        outputs.extend(generated_images)
     
     if not os.path.exists("./output"):
         os.makedirs("./output")
     
-    for i, img in enumerate(output_images):
+    for i, img in enumerate(outputs):
         Image.fromarray(img).save(f"./output/img_{i}.jpg")
     
-    return output_images
+    return outputs
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Inference Arguments')
@@ -53,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_inference_steps', help="Step to generate image", default=50, choices=range(1, 1001), metavar="Value: [1-1000]", type=int)
     parser.add_argument('--sampler', metavar="", default='ddpm', choices=['ddpm', 'ddim'], type=str, help="Sampling method: 2 options available: DDPM and DDIM")
     parser.add_argument('--use_cosine_schedule', metavar="", action=argparse.BooleanOptionalAction, help="Activate using cosine function to generate beta values used for adding and remove noise from the image.")
+    parser.add_argument('--batch_size', metavar="", default=1, type=int, help="Batch size")
     
     args = parser.parse_args()
     args.seed = None

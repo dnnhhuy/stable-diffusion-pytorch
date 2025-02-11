@@ -104,7 +104,6 @@ def collate_fn(examples):
     
     prompts = [example["instance_prompt"] for example in examples]
     prompts += [example["class_prompt"] for example in examples]
-    
     pixel_values = torch.stack(pixel_values)
     
     batch = {"pixel_values": pixel_values,
@@ -119,12 +118,12 @@ def create_dataloaders(instance_data_dir,
                        num_workers: int,
                       img_size: Tuple[int, int]):
 
-    dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, class_data_dir=class_data_dir, img_size=img_size)
+    dreambooth_dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, class_data_dir=class_data_dir, img_size=img_size)
 
     
-    train_size = int(train_test_split * len(dataset))
-    test_size = len(dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_size = int(train_test_split * len(dreambooth_dataset))
+    test_size = len(dreambooth_dataset) - train_size
+    train_dataset, test_dataset = torch.utils.data.random_split(dreambooth_dataset, [train_size, test_size])
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples))
     test_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples))

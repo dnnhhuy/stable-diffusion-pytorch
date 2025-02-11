@@ -1,3 +1,10 @@
+import math
+import gc
+import os
+import argparse
+from tqdm.auto import tqdm
+from typing import Dict
+
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -5,16 +12,9 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from transformers import CLIPTokenizer
-
-import gc
-import os
-import argparse
-from tqdm.auto import tqdm
-from typing import Dict
-
 from utils import load_model, datasets
 from models import get_lora_model, enable_lora
-from models.ddpm import DDPMSampler
+from models.ddim import DDIMSampler
 from models.ema import EMA
 from models.diffusion import StableDiffusion
 
@@ -43,10 +43,10 @@ def train_step(model: StableDiffusion,
         float: Value of loss
     """
     
-    prior_loss_weight = 1.
+    prior_loss_weight = 1.0
     
-    train_loss = 0.
-    model.eval()
+    train_loss = 0.0
+    model.unet.to(device)
     model.unet.train()
     
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
@@ -55,9 +55,7 @@ def train_step(model: StableDiffusion,
         
         prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(batch['prompts'], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
         
-        device = imgs.device
-        sampler = DDPMSampler()
-        
+        sampler = DDIMSampler()
         with torch.no_grad():
             model.cond_encoder.to(device)
             text_embeddings = model.cond_encoder(prompt_tokens)
@@ -72,16 +70,16 @@ def train_step(model: StableDiffusion,
             x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
             
         actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
-
+        
         # Predict noise
         pred_noise = model.unet(x_t, timesteps, text_embeddings)
         pred_instance_noise, pred_class_prior_noise = pred_noise.chunk(2, dim=0)
         
         # Instance loss
-        loss = F.mse_loss(pred_instance_noise, actual_instance_noise, reduction="mean")
+        loss = F.mse_loss(pred_instance_noise.float(), actual_instance_noise.float(), reduction="mean")
         
         # Class Prior Preservation Loss
-        loss += F.mse_loss(pred_class_prior_noise, actual_class_prior_noise, reduction="mean") * prior_loss_weight
+        loss += F.mse_loss(pred_class_prior_noise.float(), actual_class_prior_noise.float(), reduction="mean") * prior_loss_weight
         
         train_loss += loss.item()
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
@@ -91,7 +89,7 @@ def train_step(model: StableDiffusion,
         
         if ((i + 1) % gradient_accumulation_steps == 0) or (i + 1 == len(train_dataloader)):
             optimizer.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             if device == 'mps':
                 torch.mps.empty_cache()
             elif device == 'cuda':
@@ -132,7 +130,7 @@ def test_step(model: nn.Module,
         prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(batch['prompts'], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
         
         device = imgs.device
-        sampler = DDPMSampler()
+        sampler = DDIMSampler()
         
         with torch.no_grad():
             model.cond_encoder.to(device)
@@ -170,7 +168,7 @@ def train(model: StableDiffusion,
           tokenizer: CLIPTokenizer,
           train_dataloader: DataLoader,
           test_dataloader: DataLoader,
-          epochs: int,
+          max_train_steps: int,
           device: torch.device, 
           optimizer: torch.optim.Optimizer,
           lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
@@ -199,6 +197,11 @@ def train(model: StableDiffusion,
     
     writer = SummaryWriter(log_dir="./runs/")
     
+    # Calculate epochs based on max_train_steps
+    num_update_steps_per_epochs = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
+    epochs = math.ceil(max_train_steps / num_update_steps_per_epochs)
+    
+    # Start training
     for epoch in range(start_epoch, epochs):
         train_loss = train_step(model=model,
                                 tokenizer=tokenizer,
@@ -208,9 +211,8 @@ def train(model: StableDiffusion,
                                 optimizer=optimizer,
                                 epoch=epoch,
                                 gradient_accumulation_steps=gradient_accumulation_steps)
-
-        lr_scheduler.step(train_loss)
-        
+        lr_scheduler.step(train_loss)  
+         
         test_loss = test_step(model=model,
                               test_dataloader=test_dataloader,
                               device=device,
@@ -277,7 +279,8 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', default='./checkpoints/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoints/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
-    parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
+    parser.add_argument('--lr', default=1e-6, type=float, help='Learning rate')
+    parser.add_argument('--max_train_steps', default=1000, type=int, help='Max training steps')
     parser.add_argument('--use_lora', default=False, type=bool, help='Option to use LoRA in training')
     parser.add_argument('--gradient_accumulation_steps', default=1, type=bool, help="Graddient accumulation steps")
     parser.add_argument('--gradient_checkpointing', default=False, type=bool, help="Apply gradient checkpointing")
@@ -288,14 +291,12 @@ if __name__ == '__main__':
     
     if args.use_lora:
         model.unet = get_lora_model(model.unet,
-                                    rank=8, 
-                                    alphas=16, 
+                                    rank=32, 
+                                    alphas=32, 
                                     lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
         model.unet = enable_lora(model.unet, 
                                  lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'],
                                  enabled=True)
-        
-    model = model.to(device=args.device)
         
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=args.lr)
 
@@ -308,22 +309,21 @@ if __name__ == '__main__':
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     # Define lr scheduler
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
+    # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1, last_epoch=-1)
     
     train_dataloader, test_dataloader = datasets.create_dataloaders(instance_data_dir=os.path.join(args.data_dir, "instance_data"), 
                                                                     class_data_dir=os.path.join(args.data_dir, "class_prior_data"),
-                                                                    train_test_split=0.8,
+                                                                    train_test_split=1.0,
                                                                     batch_size=args.batch_size,
                                                                     num_workers=0,
                                                                     img_size=(args.img_size, args.img_size))
-    
-
     
     train(model, 
           tokenizer, 
           train_dataloader, 
           test_dataloader, 
-          epochs=300,
+          max_train_steps=args.max_train_steps,
           device=args.device, 
           optimizer=optimizer, 
           lr_scheduler=lr_scheduler, 

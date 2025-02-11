@@ -8,3 +8,4 @@ images/
 *.pth
 *.ipynb
 output/
+runs/

@@ -29,9 +29,8 @@ class DDIMSampler:
         self.timesteps = torch.from_numpy((np.arange(0, self.inference_steps) * step).round()[::-1].copy().astype(np.int64))
         
 
-    def _sample_timestep(self):
-        idx = random.randint(0, self.timesteps[0])
-        return self.timesteps[idx]
+    def _sample_timestep(self, n):
+        return torch.randint(low=0, high=self.noise_step, size=(n,))
         
     def _get_prev_timestep(self, timestep: int):
         prev_t = timestep - self.noise_step // self.inference_steps
