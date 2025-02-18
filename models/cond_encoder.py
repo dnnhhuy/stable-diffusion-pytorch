@@ -20,6 +20,11 @@ class TextEncoder(nn.Module):
             if isinstance(module, TransformerEncoder):
                 module.gradient_checkpointing = enabled
 
+    def enable_flash_attn(self):
+        for name, module in self.encoder_layers.named_modules():
+            if isinstance(module, MultiheadSelfAttention):
+                module.use_flash_attention = True
+                
     def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
         x = x.type(torch.long)
         x = self.text_embedding(x)
