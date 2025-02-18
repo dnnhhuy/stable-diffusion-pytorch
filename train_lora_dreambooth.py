@@ -25,7 +25,8 @@ def train_step(model: StableDiffusion,
                optimizer: torch.optim.Optimizer,
                epoch: int,
                tokenizer: CLIPTokenizer, 
-               gradient_accumulation_steps: int) -> float:
+               gradient_accumulation_steps: int,
+               train_text_encoder: bool = False) -> float:
     """Training Step
         Feed images into model and calculate loss.
 
@@ -46,8 +47,18 @@ def train_step(model: StableDiffusion,
     prior_loss_weight = 1.0
     
     train_loss = 0.0
+    
+    # Turn off gradients for untrained parts of the model
+    model.vae.requires_grad_(False)
+    if not train_text_encoder:
+        model.cond_encoder.requires_grad_(False)
+    
     model.unet.to(device)
     model.unet.train()
+    if train_text_encoder:
+        model.cond_encoder.to(device)
+        model.cond_encoder.train()
+    
     
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
@@ -56,18 +67,27 @@ def train_step(model: StableDiffusion,
         prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(batch['prompts'], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
         
         sampler = DDIMSampler()
-        with torch.no_grad():
-            model.cond_encoder.to(device)
+        
+        if train_text_encoder:
             text_embeddings = model.cond_encoder(prompt_tokens)
-            model.cond_encoder.to("cpu")
             
-            model.vae.to(device)
-            latent_features, mean, stdev = model.vae.encode(imgs)
-            model.vae.to("cpu")
+            with torch.no_grad():
+                model.vae.to(device)
+                latent_features, mean, stdev = model.vae.encode(imgs)
+                model.vae.to("cpu")
+        else:
+            with torch.no_grad():
+                model.cond_encoder.to(device)
+                text_embeddings = model.cond_encoder(prompt_tokens)
+                model.cond_encoder.to("cpu")
+                
+                model.vae.to(device)
+                latent_features, mean, stdev = model.vae.encode(imgs)
+                model.vae.to("cpu")
             
-            # Actual noise
-            timesteps = sampler._sample_timestep(imgs.shape[0]).to(device)
-            x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
+        # Actual noise
+        timesteps = sampler._sample_timestep(imgs.shape[0]).to(device)
+        x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
             
         actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
         
@@ -179,7 +199,8 @@ def train(model: StableDiffusion,
          use_lora: bool=False,
          gradient_accumulation_steps: int=1,
          gradient_checkpointing: bool=False,
-         use_flash_attn: bool=False) -> Dict:
+         use_flash_attn: bool=False,
+         train_text_encoder: bool=False) -> Dict:
     
     results = {'train_loss': [],
               'test_loss': []}
@@ -190,6 +211,8 @@ def train(model: StableDiffusion,
         
     if gradient_checkpointing:
         model.unet.gradient_checkpointing_enabled(enabled=True)
+        if train_text_encoder:
+            model.cond_encoder.gradient_checkpointing_enabled(enabled=True)
         
     if use_flash_attn:
         model.unet.enable_flash_attn()
@@ -210,7 +233,8 @@ def train(model: StableDiffusion,
                                 device=device,
                                 optimizer=optimizer,
                                 epoch=epoch,
-                                gradient_accumulation_steps=gradient_accumulation_steps)
+                                gradient_accumulation_steps=gradient_accumulation_steps,
+                                train_text_encoder=train_text_encoder)
         lr_scheduler.step(train_loss)  
          
         test_loss = test_step(model=model,
@@ -275,16 +299,18 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', default='data/sprites', type=str, help='Data directory')
     parser.add_argument('--img_size', default=32, type=int, help='Image size')
     parser.add_argument('--batch_size', default=32, type=int, help="Batch size")
-    parser.add_argument('--use_ema', default=False, type=bool, help='Toggle to use EMA for training')
+    parser.add_argument('--use_ema', metavar="", action=argparse.BooleanOptionalAction, help='Toggle to use EMA for training')
     parser.add_argument('--save_dir', default='./checkpoints/', help='Directory to save model')
     parser.add_argument('--checkpoint_dir', default='./checkpoints/', help='Directory to save checkpoint')
     parser.add_argument('--pretrained_path', default=None, help='Pretrained model path')
     parser.add_argument('--lr', default=1e-6, type=float, help='Learning rate')
     parser.add_argument('--max_train_steps', default=1000, type=int, help='Max training steps')
-    parser.add_argument('--use_lora', default=False, type=bool, help='Option to use LoRA in training')
+    parser.add_argument('--use_lora', metavar="", action=argparse.BooleanOptionalAction, help='Option to use LoRA in training')
     parser.add_argument('--gradient_accumulation_steps', default=1, type=bool, help="Graddient accumulation steps")
-    parser.add_argument('--gradient_checkpointing', default=False, type=bool, help="Apply gradient checkpointing")
-    parser.add_argument('--use_flash_attn', default=False, type=bool, help="Option to use Flash Attention")
+    parser.add_argument('--gradient_checkpointing', metavar="", action=argparse.BooleanOptionalAction, help="Apply gradient checkpointing")
+    parser.add_argument('--use_flash_attn', metavar="", action=argparse.BooleanOptionalAction, help="Option to use Flash Attention")
+    parser.add_argument('--train_text_encoder', metavar="", action=argparse.BooleanOptionalAction, help="Train text encoder")
+    parser.add_argument('--use_8bit_adam', metavar="", action=argparse.BooleanOptionalAction, help="Use 8-bit Adam")
     
     args = parser.parse_args()
     model, tokenizer = load_model(args)
@@ -297,8 +323,21 @@ if __name__ == '__main__':
         model.unet = enable_lora(model.unet, 
                                  lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'],
                                  enabled=True)
+    
+    if args.use_8bit_adam:
+        try:
+            import bitsandbytes as bnb
+        except ImportError:
+            raise ImportError(
+                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
+            )
+
+        optimizer_class = bnb.optim.AdamW8bit
+    else:
+        optimizer_class = torch.optim.AdamW
+    # optimizer_class = torch.optim.SGD
         
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=args.lr)
+    optimizer = optimizer_class(params=model.parameters(), lr=args.lr)
 
     start_epoch = 0
     if args.pretrained_path:
@@ -333,4 +372,5 @@ if __name__ == '__main__':
           use_lora=args.use_lora,
           gradient_accumulation_steps=args.gradient_accumulation_steps,
           gradient_checkpointing=args.gradient_checkpointing,
-          use_flash_attn=args.use_flash_attn)
+          use_flash_attn=args.use_flash_attn,
+          train_text_encoder=args.train_text_encoder)

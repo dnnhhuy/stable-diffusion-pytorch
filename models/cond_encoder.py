@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+import torch.utils.checkpoint as checkpoint
+
 from .attention import MultiheadSelfAttention
 from .activation_fn import QuickGELU
 
@@ -12,6 +14,11 @@ class TextEncoder(nn.Module):
         ])
         self.layernorm = nn.LayerNorm(embed_dim)
         self.layernorm.qconfig = None
+    
+    def gradient_checkpointing_enabled(self, enabled=False):
+        for name, module in self.encoder_layers.named_modules():
+            if isinstance(module, TransformerEncoder):
+                module.gradient_checkpointing = enabled
 
     def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
         x = x.type(torch.long)
@@ -47,11 +54,16 @@ class TransformerEncoder(nn.Module):
         )
         self.layernorm_2 = nn.LayerNorm(embed_dim)
         self.dropout_2 = nn.Dropout(dropout, inplace=True)
+        
+        self.gradient_checkpointing = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         skip_connection = x
         x = self.layernorm_1(x)
-        x = self.attn_1(x=x, lookahead_mask=True)
+        if self.gradient_checkpointing:
+            x = checkpoint.checkpoint(self.attn_1, x, lookahead_mask=True, use_reentrant=False)
+        else:
+            x = self.attn_1(x=x, lookahead_mask=True)
         x = self.dropout_1(x)
         
         x = x + skip_connection
