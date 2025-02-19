@@ -58,19 +58,23 @@ class DDIMSampler:
         t = timestep
         prev_t = self._get_prev_timestep(t)
 
-        alpha_t = self.alphas[t]
-        alpha_hat_t = self.alphas_hat[t]
+        # Predict x0
+        # x0 = (x_t - sqrt(1 - a_hat_t) * model_output) / sqrt(a_hat_t)
+        x0 = (x_t - torch.sqrt(1. - self.alphas_hat[t]) * model_output) / torch.sqrt(self.alphas_hat[t])
+       
+       # Compute sigma_t
+        alpha_hat_t = self.alphas[t]
         prev_alpha_hat_t = self.alphas_hat[prev_t] if prev_t >= 0 else torch.tensor(1.0, device=x_t.device)
-        current_beta_t = 1 - alpha_hat_t / prev_alpha_hat_t
+        # sigma_square
+        variance_t = (1 - prev_alpha_hat_t) / (1 - alpha_hat_t) * (1 - alpha_hat_t / prev_alpha_hat_t)
+        std_dev_t = torch.sqrt(eta * variance_t)
         
-        variance_t = eta * (1 - prev_alpha_hat_t) / (1 - alpha_hat_t) * current_beta_t
+        direction_pointing_to_xt = torch.sqrt(1 - prev_alpha_hat_t - std_dev_t**2) * model_output
         
-        if t > 0:
-            mu = torch.sqrt(prev_alpha_hat_t) * (x_t - torch.sqrt(1. - alpha_hat_t) * model_output) / torch.sqrt(alpha_hat_t) + torch.sqrt(1 - prev_alpha_hat_t - variance_t) * model_output
-            
-        else:
-            mu = (x_t - torch.sqrt(1 - alpha_hat_t) * model_output) / torch.sqrt(alpha_hat_t)
-        return mu
-            
+        prev_xt = torch.sqrt(prev_alpha_hat_t) * x0 + direction_pointing_to_xt
         
+        if eta > 0:
+            variance = torch.randn_like(x_t) * std_dev_t
+            prev_xt = prev_xt + variance
         
+        return prev_xt

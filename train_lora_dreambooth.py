@@ -216,7 +216,8 @@ def train(model: StableDiffusion,
         
     if use_flash_attn:
         model.unet.enable_flash_attn()
-    
+        if train_text_encoder:
+            model.cond_encoder.enable_flash_attn()
     
     writer = SummaryWriter(log_dir="./runs/")
     
