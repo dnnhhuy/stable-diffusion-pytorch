@@ -128,7 +128,10 @@ def create_dataloaders(instance_data_dir,
                       img_size: Tuple[int, int],
                       num_class_prior_images: int = None):
 
-    dreambooth_dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, class_data_dir=class_data_dir, img_size=img_size)
+    dreambooth_dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, 
+                                           class_data_dir=class_data_dir, 
+                                           img_size=img_size, 
+                                           num_class_prior_images=num_class_prior_images)
 
     
     train_size = int(train_test_split * len(dreambooth_dataset))
