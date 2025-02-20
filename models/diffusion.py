@@ -13,15 +13,8 @@ from typing import Tuple
 import gc
 from transformers import PreTrainedTokenizerFast
 
-def scale_img(x: torch.Tensor, old_range, new_range, clamp=False):
-    old_min, old_max = old_range
-    new_min, new_max = new_range
-    x -= old_min
-    x *= (new_max - new_min) / (old_max - old_min)
-    x += new_min
-    if clamp:
-        x = torch.clamp(x, new_min, new_max)
-    return x
+def denormalize(x: torch.Tensor):
+    return (x * 0.5 + 0.5).clamp(0, 1)
 
 class StableDiffusion(nn.Module):
     def __init__(self, model_type: str, num_classes: int=None, vae_type: str=''):
@@ -178,10 +171,10 @@ class StableDiffusion(nn.Module):
             self.vae.to(device)
             generated_imgs = self.vae.decode(latent_features.to(device))
             self.vae.to('cpu')
-    
-            generated_imgs = scale_img(generated_imgs, (-1, 1), (0, 255), clamp=True)
-            generated_imgs = generated_imgs.permute(0, 2, 3, 1)
-            generated_imgs = generated_imgs.to('cpu', torch.uint8).numpy()
+
+            generated_imgs = denormalize(generated_imgs)
+            generated_imgs = generated_imgs.cpu().permute(0, 2, 3, 1).float().numpy()
+            generated_imgs = (generated_imgs * 255).round().astype("uint8")
             # Reset inference steps
             sampler._set_inference_steps(sampler.noise_step)
             

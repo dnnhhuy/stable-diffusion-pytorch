@@ -65,6 +65,13 @@ class DreamBoothDataset(torch.utils.data.Dataset):
         self.num_class_imgs = len(self.class_imgs_path)
         self.length = max(self.num_instance_imgs, self.num_class_imgs)
         
+        self.image_transforms = transforms.Compose([
+            transforms.Resize(self.img_size, interpolation=transforms.IntrerpolationMode.BILINEAR),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5])
+        ])
+        
+        
     def load_data(self, data_dir: str):
         imgs_path = Path(data_dir).glob("*.jpg")
         with open((Path(data_dir) / "label.txt"), "r") as f:
@@ -75,12 +82,8 @@ class DreamBoothDataset(torch.utils.data.Dataset):
         return imgs, label
 
     def transform_image(self, img: Image.Image):
-        img = img.resize(self.img_size)
-        img = np.array(img)
-        img = torch.tensor(img, dtype=torch.float32)
-        img = scale_img(img, (0, 255), (-1, 1))
-        img = img.permute(2, 0, 1)
-        return img
+        img = img.convert("RGB")
+        return self.image_transforms(img)
         
     def __len__(self):
         return self.length
