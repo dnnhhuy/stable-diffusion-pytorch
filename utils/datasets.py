@@ -2,11 +2,13 @@ import torch
 from torch import nn
 from typing import Tuple
 from pathlib import Path
-import numpy as np
-import os, sys
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from PIL import Image
+
+import numpy as np
+import os, sys
+import random
 
 sys.path.append("..")
 
@@ -56,17 +58,21 @@ class CustomDataset(torch.utils.data.Dataset):
     
     
 class DreamBoothDataset(torch.utils.data.Dataset):
-    def __init__(self, instance_data_dir: str, class_data_dir: str, img_size: Tuple[int, int]):
+    def __init__(self, instance_data_dir: str, class_data_dir: str, img_size: Tuple[int, int], num_class_prior_images: int = None):
         super().__init__()
         self.instance_imgs_path, self.instance_prompt = self.load_data(instance_data_dir)
+        random.shuffle(self.instance_imgs_path)
+        
         self.class_imgs_path, self.class_prompt = self.load_data(class_data_dir)
+        self.class_imgs_path = self.class_imgs_path[:num_class_prior_images]
+        
         self.img_size = img_size
         self.num_instance_imgs = len(self.instance_imgs_path)
         self.num_class_imgs = len(self.class_imgs_path)
         self.length = max(self.num_instance_imgs, self.num_class_imgs)
         
         self.image_transforms = transforms.Compose([
-            transforms.Resize(self.img_size, interpolation=transforms.IntrerpolationMode.BILINEAR),
+            transforms.Resize(self.img_size, interpolation=transforms.InterpolationMode.BILINEAR),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
@@ -119,7 +125,8 @@ def create_dataloaders(instance_data_dir,
                        train_test_split: float,
                        batch_size: int, 
                        num_workers: int,
-                      img_size: Tuple[int, int]):
+                      img_size: Tuple[int, int],
+                      num_class_prior_images: int = None):
 
     dreambooth_dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, class_data_dir=class_data_dir, img_size=img_size)
 

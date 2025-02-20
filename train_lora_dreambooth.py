@@ -4,6 +4,7 @@ import os
 import argparse
 from tqdm.auto import tqdm
 from typing import Dict
+import random
 
 import torch
 from torch import nn
@@ -206,6 +207,7 @@ def train(model: StableDiffusion,
     if seed is not None:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+        random.seed(seed)
         
     results = {'train_loss': [],
               'test_loss': []}
@@ -318,6 +320,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_text_encoder', metavar="", action=argparse.BooleanOptionalAction, help="Train text encoder")
     parser.add_argument('--use_8bit_adam', metavar="", action=argparse.BooleanOptionalAction, help="Use 8-bit Adam")
     parser.add_argument('--seed', default=None, type=int, help="Seed value")
+    parser.add_argument('--num_class_prior_images', default=100, type=int, help="Minimal number of class images")
     
     args = parser.parse_args()
     model, tokenizer = load_model(args)
@@ -363,7 +366,8 @@ if __name__ == '__main__':
                                                                     train_test_split=1.0,
                                                                     batch_size=args.batch_size,
                                                                     num_workers=0,
-                                                                    img_size=(args.img_size, args.img_size))
+                                                                    img_size=(args.img_size, args.img_size),
+                                                                    num_class_prior_images=args.num_class_prior_images)
     
     train(model, 
           tokenizer, 
