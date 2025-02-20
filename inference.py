@@ -13,6 +13,7 @@ from models import get_lora_model, enable_lora
 def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None) -> List[Image.Image]:
     outputs = []
     iterations = math.ceil(args.n_samples / args.batch_size)
+    
     for i in range(iterations):
         generated_images = model.generate(
             input_image=input_image,
@@ -28,8 +29,8 @@ def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None)
             use_cosine_schedule=args.use_cosine_schedule,
             seed=args.seed,
             tokenizer=tokenizer,
-            batch_size=args.batch_size,
-        )
+            batch_size=args.batch_size)
+        
         outputs.extend(generated_images)
     
     if not os.path.exists("./output"):
@@ -58,9 +59,9 @@ if __name__ == '__main__':
     parser.add_argument('--sampler', metavar="", default='ddpm', choices=['ddpm', 'ddim'], type=str, help="Sampling method: 2 options available: DDPM and DDIM")
     parser.add_argument('--use_cosine_schedule', metavar="", action=argparse.BooleanOptionalAction, help="Activate using cosine function to generate beta values used for adding and remove noise from the image.")
     parser.add_argument('--batch_size', metavar="", default=1, type=int, help="Batch size")
+    parser.add_argument('--seed', default=None, type=int, help="Seed value")
     
     args = parser.parse_args()
-    args.seed = None
     
     if args.do_cfg is None:
         args.do_cfg = False

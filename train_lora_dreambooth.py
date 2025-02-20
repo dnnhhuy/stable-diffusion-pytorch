@@ -99,13 +99,13 @@ def train_step(model: StableDiffusion,
         loss = F.mse_loss(pred_instance_noise.float(), actual_instance_noise.float(), reduction="mean")
         
         # Class Prior Preservation Loss
-        loss += F.mse_loss(pred_class_prior_noise.float(), actual_class_prior_noise.float(), reduction="mean") * prior_loss_weight
+        prior_loss = F.mse_loss(pred_class_prior_noise.float(), actual_class_prior_noise.float(), reduction="mean")
         
-        train_loss += loss.item()
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-        
-        loss = loss / gradient_accumulation_steps
+        loss = loss + prior_loss_weight * prior_loss
         loss.backward()
+        
+        train_loss += loss.detach().item()
+        pbar.set_postfix({"loss": f"{loss.detach().item():.4f}"})
         
         if ((i + 1) % gradient_accumulation_steps == 0) or (i + 1 == len(train_dataloader)):
             optimizer.step()
@@ -200,8 +200,13 @@ def train(model: StableDiffusion,
          gradient_accumulation_steps: int=1,
          gradient_checkpointing: bool=False,
          use_flash_attn: bool=False,
-         train_text_encoder: bool=False) -> Dict:
+         train_text_encoder: bool=False,
+         seed: int=None) -> Dict:
     
+    if seed is not None:
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        
     results = {'train_loss': [],
               'test_loss': []}
 
@@ -312,6 +317,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_flash_attn', metavar="", action=argparse.BooleanOptionalAction, help="Option to use Flash Attention")
     parser.add_argument('--train_text_encoder', metavar="", action=argparse.BooleanOptionalAction, help="Train text encoder")
     parser.add_argument('--use_8bit_adam', metavar="", action=argparse.BooleanOptionalAction, help="Use 8-bit Adam")
+    parser.add_argument('--seed', default=None, type=int, help="Seed value")
     
     args = parser.parse_args()
     model, tokenizer = load_model(args)
@@ -374,4 +380,5 @@ if __name__ == '__main__':
           gradient_accumulation_steps=args.gradient_accumulation_steps,
           gradient_checkpointing=args.gradient_checkpointing,
           use_flash_attn=args.use_flash_attn,
-          train_text_encoder=args.train_text_encoder)
+          train_text_encoder=args.train_text_encoder,
+          seed=args.seed)
