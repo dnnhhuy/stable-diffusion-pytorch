@@ -60,12 +60,13 @@ def train_step(model: StableDiffusion,
         model.cond_encoder.to(device)
         model.cond_encoder.train()
     
-    
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
         imgs = batch['pixel_values'].to(device)
-        
-        prompt_tokens = torch.tensor(tokenizer.batch_encode_plus(batch['prompts'], padding='max_length', max_length=77).input_ids, dtype=torch.long, device=device)
+        prompt_tokens = torch.tensor(tokenizer(batch['prompts'], 
+                                                padding="max_length", 
+                                                truncation=True,
+                                                max_length=77).input_ids, dtype=torch.long, device=device)
         
         sampler = DDIMSampler()
         
@@ -85,10 +86,11 @@ def train_step(model: StableDiffusion,
                 model.vae.to(device)
                 latent_features, mean, stdev = model.vae.encode(imgs)
                 model.vae.to("cpu")
-            
+        
         # Actual noise
-        timesteps = sampler._sample_timestep(imgs.shape[0]).to(device)
-        x_t, actual_noise = sampler.forward_process(latent_features, timesteps)
+        noise = torch.randn_like(latent_features)
+        timesteps = sampler._sample_timestep(imgs.shape[0], device=latent_features.device)
+        x_t, actual_noise = sampler.forward_process(latent_features, timesteps, noise=noise)
             
         actual_instance_noise, actual_class_prior_noise = actual_noise.chunk(2, dim=0)
         
@@ -201,14 +203,8 @@ def train(model: StableDiffusion,
          gradient_accumulation_steps: int=1,
          gradient_checkpointing: bool=False,
          use_flash_attn: bool=False,
-         train_text_encoder: bool=False,
-         seed: int=None) -> Dict:
+         train_text_encoder: bool=False) -> Dict:
     
-    if seed is not None:
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        random.seed(seed)
-        
     results = {'train_loss': [],
               'test_loss': []}
 
@@ -244,11 +240,11 @@ def train(model: StableDiffusion,
                                 gradient_accumulation_steps=gradient_accumulation_steps,
                                 train_text_encoder=train_text_encoder)
         lr_scheduler.step(train_loss)  
-         
-        test_loss = test_step(model=model,
-                              test_dataloader=test_dataloader,
-                              device=device,
-                              tokenizer=tokenizer)
+        test_loss = 0.0
+        # test_loss = test_step(model=model,
+        #                       test_dataloader=test_dataloader,
+        #                       device=device,
+        #                       tokenizer=tokenizer)
         
         print(f"Train Loss: {train_loss} | Test Loss: {test_loss}| Current LR: {lr_scheduler.get_last_lr()}")
         
@@ -361,6 +357,11 @@ if __name__ == '__main__':
     # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=1e-4, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8)
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1, last_epoch=-1)
     
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        random.seed(args.seed)
+        
     train_dataloader, test_dataloader = datasets.create_dataloaders(instance_data_dir=os.path.join(args.data_dir, "instance_data"), 
                                                                     class_data_dir=os.path.join(args.data_dir, "class_prior_data"),
                                                                     train_test_split=1.0,
@@ -368,7 +369,6 @@ if __name__ == '__main__':
                                                                     num_workers=0,
                                                                     img_size=(args.img_size, args.img_size),
                                                                     num_class_prior_images=args.num_class_prior_images)
-    
     train(model, 
           tokenizer, 
           train_dataloader, 
@@ -384,5 +384,4 @@ if __name__ == '__main__':
           gradient_accumulation_steps=args.gradient_accumulation_steps,
           gradient_checkpointing=args.gradient_checkpointing,
           use_flash_attn=args.use_flash_attn,
-          train_text_encoder=args.train_text_encoder,
-          seed=args.seed)
+          train_text_encoder=args.train_text_encoder)

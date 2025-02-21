@@ -65,7 +65,6 @@ class DreamBoothDataset(torch.utils.data.Dataset):
         
         self.class_imgs_path, self.class_prompt = self.load_data(class_data_dir)
         self.class_imgs_path = self.class_imgs_path[:num_class_prior_images]
-        
         self.img_size = img_size
         self.num_instance_imgs = len(self.instance_imgs_path)
         self.num_class_imgs = len(self.class_imgs_path)
@@ -77,9 +76,8 @@ class DreamBoothDataset(torch.utils.data.Dataset):
             transforms.Normalize([0.5], [0.5])
         ])
         
-        
     def load_data(self, data_dir: str):
-        imgs_path = Path(data_dir).glob("*.jpg")
+        imgs_path = [x for x in Path(data_dir).iterdir() if x.is_file() and not str(x).endswith(".txt")]
         with open((Path(data_dir) / "label.txt"), "r") as f:
             label = f.read()
         imgs = []
@@ -103,7 +101,6 @@ class DreamBoothDataset(torch.utils.data.Dataset):
         class_img = Image.open(self.class_imgs_path[index % self.num_class_imgs]).convert("RGB")
         example['class_img'] = self.transform_image(class_img)
         example['class_prompt'] = self.class_prompt
-        
         return example
         
 
@@ -114,6 +111,7 @@ def collate_fn(examples):
     prompts = [example["instance_prompt"] for example in examples]
     prompts += [example["class_prompt"] for example in examples]
     pixel_values = torch.stack(pixel_values)
+    pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     
     batch = {"pixel_values": pixel_values,
              "prompts": prompts}
@@ -132,15 +130,11 @@ def create_dataloaders(instance_data_dir,
                                            class_data_dir=class_data_dir, 
                                            img_size=img_size, 
                                            num_class_prior_images=num_class_prior_images)
-
-    
     train_size = int(train_test_split * len(dreambooth_dataset))
     test_size = len(dreambooth_dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(dreambooth_dataset, [train_size, test_size])
-
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples))
-    test_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples))
-
+    # train_dataset, test_dataset = torch.utils.data.random_split(dreambooth_dataset, [train_size, test_size])
+    train_dataloader = DataLoader(dreambooth_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples), pin_memory=True)
+    test_dataloader = DataLoader(dreambooth_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=lambda examples: collate_fn(examples))
     return train_dataloader, test_dataloader
     
     
