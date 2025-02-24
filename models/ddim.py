@@ -7,7 +7,7 @@ import math
 
 class DDIMSampler:
     def __init__(self, noise_step: int=1000, beta_start: float=0.00085, beta_end: float=0.012, use_cosine_schedule: bool=False, device: str='cpu'):
-        self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, dtype=torch.float32) ** 2
+        self.betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, noise_step, dtype=torch.float32, device=device) ** 2
         self.alphas = 1.0 - self.betas
         self.alphas_hat = torch.cumprod(self.alphas, dim=0)
         self.noise_step = noise_step

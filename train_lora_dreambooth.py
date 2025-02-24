@@ -59,6 +59,7 @@ def train_step(model: StableDiffusion,
     if train_text_encoder:
         model.cond_encoder.to(device)
         model.cond_encoder.train()
+    sampler = DDIMSampler()
     
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
@@ -67,8 +68,6 @@ def train_step(model: StableDiffusion,
                                                 padding="max_length", 
                                                 truncation=True,
                                                 max_length=77).input_ids, dtype=torch.long, device=device)
-        
-        sampler = DDIMSampler()
         
         if train_text_encoder:
             text_embeddings = model.cond_encoder(prompt_tokens)

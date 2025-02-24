@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torchvision import transforms
+
 from tqdm.auto import tqdm
 from models.ddpm import DDPMSampler
 from models.ddim import DDIMSampler
@@ -35,10 +37,12 @@ class StableDiffusion(nn.Module):
             raise ValueError('Only support txt2img or class2img model types')
     
     def _preprocess_image(self, img: Image, img_size: Tuple[int, int], dtype: torch.dtype=torch.float32):
-        img = img.resize(img_size)
-        img = np.array(img)
-        img = torch.tensor(img, dtype=dtype)
-        img = scale_img(img, (0, 255), (-1, 1))
+        image_transforms = transforms.Compose([
+            transforms.Resize(img_size, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5])
+        ])
+        img = image_transforms(img)
         img = img.unsqueeze(0)
         img = img.permute(0, 3, 1, 2)
         return img

@@ -1,6 +1,6 @@
-import sys
+import torch
 from models.diffusion import StableDiffusion
-from utils.model_converter import load_weights_from_ckpt, load_weights_from_safetensors
+from utils.model_converter import load_weights_from_ckpt, load_weights_from_safetensors, load_weights_from_ckpt_v2
 from transformers import CLIPTokenizer
 import os
 import time
@@ -11,10 +11,11 @@ def create_model(model_path: str):
         loaded_state_dict = load_weights_from_ckpt(model_path, device='cpu')
     elif model_path.endswith(".safetensors"):
         loaded_state_dict = load_weights_from_safetensors(model_path, device='cpu')
-    
     model.vae.load_state_dict(loaded_state_dict['vae'], strict=True)
     model.unet.load_state_dict(loaded_state_dict['unet'], strict=True)
     model.cond_encoder.load_state_dict(loaded_state_dict['cond_encoder'], strict=True)
+    # loaded_state_dict = torch.load(model_path, map_location='cpu')["model_state_dict"]
+    # model.load_state_dict(loaded_state_dict, strict=True)
     return model
 
 def create_tokenizer(tokenizer_dir): 
