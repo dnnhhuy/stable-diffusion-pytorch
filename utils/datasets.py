@@ -58,7 +58,12 @@ class CustomDataset(torch.utils.data.Dataset):
     
     
 class DreamBoothDataset(torch.utils.data.Dataset):
-    def __init__(self, instance_data_dir: str, class_data_dir: str, img_size: Tuple[int, int], num_class_prior_images: int = None):
+    def __init__(self,
+                 tokenizer,
+                 instance_data_dir: str, 
+                 class_data_dir: str, 
+                 img_size: Tuple[int, int], 
+                 num_class_prior_images: int = None):
         super().__init__()
         self.instance_imgs_path, self.instance_prompt = self.load_data(instance_data_dir)
         random.shuffle(self.instance_imgs_path)
@@ -75,6 +80,8 @@ class DreamBoothDataset(torch.utils.data.Dataset):
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
+        
+        self.tokenizer = tokenizer
         
     def load_data(self, data_dir: str):
         imgs_path = [x for x in Path(data_dir).iterdir() if x.is_file() and not str(x).endswith(".txt")]
@@ -96,11 +103,17 @@ class DreamBoothDataset(torch.utils.data.Dataset):
         example = {}
         instance_img = Image.open(self.instance_imgs_path[index % self.num_instance_imgs]).convert("RGB")
         example['instance_img'] = self.transform_image(instance_img)
-        example['instance_prompt'] = self.instance_prompt
+        example['instance_prompt_ids'] = self.tokenizer(self.instance_prompt,
+                                                        padding="do_not_pad", 
+                                                        truncation=True,
+                                                        max_length=77).input_ids
         
         class_img = Image.open(self.class_imgs_path[index % self.num_class_imgs]).convert("RGB")
         example['class_img'] = self.transform_image(class_img)
-        example['class_prompt'] = self.class_prompt
+        example['class_prompt_ids'] = self.tokenizer(self.class_prompt,
+                                                    padding="do_not_pad", 
+                                                    truncation=True,
+                                                    max_length=77).input_ids
         return example
         
 
@@ -108,17 +121,19 @@ def collate_fn(examples):
     pixel_values = [example["instance_img"] for example in examples]
     pixel_values += [example["class_img"] for example in examples]
     
-    prompts = [example["instance_prompt"] for example in examples]
-    prompts += [example["class_prompt"] for example in examples]
+    input_ids = [example["instance_prompt_ids"] for example in examples]
+    input_ids += [example["class_prompt_ids"] for example in examples]
     pixel_values = torch.stack(pixel_values)
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     
+    
     batch = {"pixel_values": pixel_values,
-             "prompts": prompts}
+             "input_ids": input_ids}
     
     return batch
 
-def create_dataloaders(instance_data_dir, 
+def create_dataloaders(tokenizer,
+                       instance_data_dir, 
                        class_data_dir,
                        train_test_split: float,
                        batch_size: int, 
@@ -126,7 +141,8 @@ def create_dataloaders(instance_data_dir,
                       img_size: Tuple[int, int],
                       num_class_prior_images: int = None):
 
-    dreambooth_dataset = DreamBoothDataset(instance_data_dir=instance_data_dir, 
+    dreambooth_dataset = DreamBoothDataset(tokenizer=tokenizer, 
+                                           instance_data_dir=instance_data_dir, 
                                            class_data_dir=class_data_dir, 
                                            img_size=img_size, 
                                            num_class_prior_images=num_class_prior_images)

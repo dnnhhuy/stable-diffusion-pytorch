@@ -14,6 +14,9 @@ def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None)
     outputs = []
     iterations = math.ceil(args.n_samples / args.batch_size)
     
+    if not os.path.exists("./output"):
+        os.makedirs("./output")
+        
     for i in range(iterations):
         generated_images = model.generate(
             input_image=input_image,
@@ -31,13 +34,9 @@ def inference(args, model, tokenizer, input_image: Optional[Image.Image] = None)
             tokenizer=tokenizer,
             batch_size=args.batch_size)
         
-        outputs.extend(generated_images)
-    
-    if not os.path.exists("./output"):
-        os.makedirs("./output")
-    
-    for i, img in enumerate(outputs):
-        Image.fromarray(img).save(f"./output/img_{i}.jpg")
+        for img in generated_images:
+            Image.fromarray(img).save(f"./output/img_{i}.jpg")
+            outputs.append(img)
     
     return outputs
 
@@ -104,11 +103,12 @@ if __name__ == '__main__':
         model.cond_encoder.load_state_dict(state_dict=state_dict["cond_encoder"], strict=False)
         
     elif args.lora_ckpt.endswith(".ckpt"):
-        model.unet = get_lora_model(model.unet, rank=8, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
+        model.unet = get_lora_model(model.unet, rank=256, alphas=256, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
         model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
+        # model.cond_encoder = get_lora_model(model.cond_encoder, rank=128, alphas=128, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'])
+        # model.cond_encoder = enable_lora(model.cond_encoder, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'], enabled=True)
         
         model.load_state_dict(torch.load(args.lora_ckpt, map_location="cpu")["model_state_dict"], strict=False)
-        
             
     output_images = inference(args, model, tokenizer, input_image)
         

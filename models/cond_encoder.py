@@ -37,12 +37,24 @@ class TextEmbedding(nn.Module):
     def __init__(self, n_vocab: int, embed_dim: int, max_len: int):
         super().__init__()
         self.embedding = nn.Embedding(n_vocab, embed_dim)
-        self.positional_encoding = nn.Parameter(torch.zeros(max_len, embed_dim), requires_grad=True)
+        self.position_embedding = nn.Embedding(max_len, embed_dim)
+
+        # position_ids (1, len position emb) is contiguous in memory and exported when serialized
+        self.register_buffer(
+            "position_ids", torch.arange(max_len).expand((1, -1)), persistent=False
+        )
         
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.embedding(x)
-        x = x + self.positional_encoding
-        return x
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        seq_length = input_ids.shape[-1]
+
+        position_ids = self.position_ids[:, :seq_length]
+
+        inputs_embeds = self.embedding(input_ids.to(self.embedding.weight.device))
+
+        position_embeddings = self.position_embedding(position_ids)
+        embeddings = inputs_embeds + position_embeddings
+
+        return embeddings
         
 class TransformerEncoder(nn.Module):
     def __init__(self, num_heads: int, embed_dim: int, ffn_dim: int, dropout: float=0.0):

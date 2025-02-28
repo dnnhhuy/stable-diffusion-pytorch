@@ -64,10 +64,10 @@ def train_step(model: StableDiffusion,
     pbar = tqdm(train_dataloader, leave=True, position=0, desc=f"Epoch {epoch}", ncols=100)
     for i, batch in enumerate(pbar):
         imgs = batch['pixel_values'].to(device)
-        prompt_tokens = torch.tensor(tokenizer(batch['prompts'], 
-                                                padding="max_length", 
-                                                truncation=True,
-                                                max_length=77).input_ids, dtype=torch.long, device=device)
+        prompt_tokens = tokenizer.pad({"input_ids": batch["input_ids"]},
+                                    padding=True,
+                                    return_tensors="pt",
+                                    ).input_ids
         
         if train_text_encoder:
             text_embeddings = model.cond_encoder(prompt_tokens)
@@ -85,7 +85,7 @@ def train_step(model: StableDiffusion,
                 model.vae.to(device)
                 latent_features, mean, stdev = model.vae.encode(imgs)
                 model.vae.to("cpu")
-        
+                
         # Actual noise
         noise = torch.randn_like(latent_features)
         timesteps = sampler._sample_timestep(imgs.shape[0], device=latent_features.device)
@@ -309,7 +309,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=1e-6, type=float, help='Learning rate')
     parser.add_argument('--max_train_steps', default=1000, type=int, help='Max training steps')
     parser.add_argument('--use_lora', metavar="", action=argparse.BooleanOptionalAction, help='Option to use LoRA in training')
-    parser.add_argument('--gradient_accumulation_steps', default=1, type=bool, help="Graddient accumulation steps")
+    parser.add_argument('--gradient_accumulation_steps', default=1, type=int, help="Graddient accumulation steps")
     parser.add_argument('--gradient_checkpointing', metavar="", action=argparse.BooleanOptionalAction, help="Apply gradient checkpointing")
     parser.add_argument('--use_flash_attn', metavar="", action=argparse.BooleanOptionalAction, help="Option to use Flash Attention")
     parser.add_argument('--train_text_encoder', metavar="", action=argparse.BooleanOptionalAction, help="Train text encoder")
@@ -321,13 +321,19 @@ if __name__ == '__main__':
     model, tokenizer = load_model(args)
     
     if args.use_lora:
-        model.unet = get_lora_model(model.unet,
-                                    rank=32, 
-                                    alphas=32, 
+        model.unet = get_lora_model(model.unet, 
+                                    rank=128, alphas=128, 
                                     lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
         model.unet = enable_lora(model.unet, 
-                                 lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'],
+                                 lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], 
                                  enabled=True)
+        # model.cond_encoder = get_lora_model(model.cond_encoder, 
+        #                                     rank=128, 
+        #                                     alphas=128, 
+        #                                     lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'])
+        # model.cond_encoder = enable_lora(model.cond_encoder, 
+        #                                  lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'], 
+        #                                  enabled=True)
     
     if args.use_8bit_adam:
         try:
@@ -349,7 +355,7 @@ if __name__ == '__main__':
         checkpoint = torch.load(args.pretrained_path, map_location='cpu')
         
         start_epoch = checkpoint['epoch'] + 1
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     # Define lr scheduler
@@ -361,7 +367,8 @@ if __name__ == '__main__':
         torch.cuda.manual_seed_all(args.seed)
         random.seed(args.seed)
         
-    train_dataloader, test_dataloader = datasets.create_dataloaders(instance_data_dir=os.path.join(args.data_dir, "instance_data"), 
+    train_dataloader, test_dataloader = datasets.create_dataloaders(tokenizer,
+                                                                    instance_data_dir=os.path.join(args.data_dir, "instance_data"), 
                                                                     class_data_dir=os.path.join(args.data_dir, "class_prior_data"),
                                                                     train_test_split=1.0,
                                                                     batch_size=args.batch_size,
