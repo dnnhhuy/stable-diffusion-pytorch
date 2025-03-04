@@ -103,7 +103,7 @@ if __name__ == '__main__':
         model.cond_encoder.load_state_dict(state_dict=state_dict["cond_encoder"], strict=False)
         
     elif args.lora_ckpt.endswith(".ckpt"):
-        model.unet = get_lora_model(model.unet, rank=256, alphas=256, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
+        model.unet = get_lora_model(model.unet, rank=32, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
         model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
         # model.cond_encoder = get_lora_model(model.cond_encoder, rank=128, alphas=128, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'])
         # model.cond_encoder = enable_lora(model.cond_encoder, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out', 'ffn.0', 'ffn.2'], enabled=True)

@@ -3,3 +3,4 @@ torchvision==0.18.1
 numpy==1.24.3
 pytorch-lightning==2.3.3
 transformers==4.43.2
+bitsandbytes
