@@ -65,5 +65,14 @@ conda activate ./.env
     --sampler             Sampling method (2 options available): DDPM or DDIM
     --use_cosine_schedule, --no-use_cosine_schedule
                           Activate using cosine function to generate beta values used for adding and remove noise from the image.
+    --batch_size          Number of images generated in the same
+                          time.
+    --seed                Seed for reproducibility.
     ```
 
+## References
+* Jonathan Ho et al. [“Denoising diffusion probabilistic models.”](https://arxiv.org/abs/2006.11239) arxiv Preprint arxiv:2006.11239 (2020)
+* Jiaming Song et al. [“Denoising diffusion implicit models.”](https://arxiv.org/abs/2010.02502) arxiv Preprint arxiv:2010.02502 (2020)
+* Alex Nichol & Prafulla Dhariwal. [“Improved denoising diffusion probabilistic models”](https://arxiv.org/abs/2102.09672) arxiv Preprint arxiv:2102.09672 (2021).
+* Robin R. and et al, ["High-Resolution Image Synthesis with Latent Diffusion Models"](https://arxiv.org/abs/2112.10752) arxiv Preprint arXiv:2112.10752v2 (2021).
+* Jonathan Ho & Tim Salimans. [“Classifier-Free Diffusion Guidance.”](https://arxiv.org/abs/2207.12598) NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications. (2022)

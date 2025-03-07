@@ -10,7 +10,7 @@ import os
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 def initialize_model():
     args = {"model_path": "./weights/model/v1-5-pruned-emaonly.ckpt",
-            "tokenizer_dir": "./weights/model/tokenizer/"}
+            "tokenizer_dir": "./weights/tokenizer/"}
     args = argparse.Namespace(**args)
     
     if not os.path.exists("./weights/model"):
@@ -32,11 +32,11 @@ def initialize_model():
                 
     model, tokenizer = load_model(args)
     
-    model.unet = get_lora_model(model.unet, rank=8, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
+    model.unet = get_lora_model(model.unet, rank=32, alphas=16, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'])
     model.unet = enable_lora(model.unet, lora_modules=['proj_q', 'proj_k', 'proj_v', 'proj_out'], enabled=True)
     
-    if os.path.exists("./weights/model/stable_diffusion_lora_epoch_75.ckpt"):
-        model.load_state_dict(torch.load("./weights/model/stable_diffusion_lora_epoch_75.ckpt", map_location="cpu")['model_state_dict'], strict=False)
+    if os.path.exists("./weights/model/stable_diffusion_lora_epoch_24.ckpt"):
+        model.load_state_dict(torch.load("./weights/model/stable_diffusion_lora_epoch_24.ckpt", map_location="cpu")['model_state_dict'], strict=False)
         
     return model, tokenizer
 
@@ -125,6 +125,7 @@ def img2img(input_images,
             use_cosine_schedule=args.use_cosine_schedule,
             seed=args.seed,
             tokenizer=tokenizer,
+            batch_size=1,
             gr_progress_bar=gr.Progress()
         )
         output_images.append(output_img)
