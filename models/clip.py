@@ -12,8 +12,8 @@ class TextEncoder(nn.Module):
         self.encoder_layers = nn.ModuleList([
             TransformerEncoder(num_heads=12, embed_dim=embed_dim, ffn_dim=embed_dim*4) for _ in range(12)
         ])
-        self.layernorm = nn.LayerNorm(embed_dim)
-        self.layernorm.qconfig = None
+        self.final_layer_norm = nn.LayerNorm(embed_dim)
+        self.final_layer_norm.qconfig = None
     
     def gradient_checkpointing_enabled(self, enabled=False):
         for name, module in self.encoder_layers.named_modules():
@@ -30,7 +30,7 @@ class TextEncoder(nn.Module):
         x = self.text_embedding(x)
         for layer in self.encoder_layers:
             x = layer(x)
-        x = self.layernorm(x)
+        x = self.final_layer_norm(x)
         return x
         
 class TextEmbedding(nn.Module):
@@ -60,7 +60,7 @@ class TransformerEncoder(nn.Module):
     def __init__(self, num_heads: int, embed_dim: int, ffn_dim: int, dropout: float=0.0):
         super().__init__()
         
-        self.attn_1 = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embed_dim)
+        self.self_attn = MultiheadSelfAttention(num_heads=num_heads, embedding_dim=embed_dim)
         self.dropout_1 = nn.Dropout(dropout, inplace=True)
         self.layernorm_1 = nn.LayerNorm(embed_dim)
 
@@ -80,7 +80,7 @@ class TransformerEncoder(nn.Module):
         if self.gradient_checkpointing:
             x = checkpoint.checkpoint(self.attn_1, x, lookahead_mask=True, use_reentrant=False)
         else:
-            x = self.attn_1(x=x, lookahead_mask=True)
+            x = self.self_attn(x=x, lookahead_mask=True)
         x = self.dropout_1(x)
         
         x = x + skip_connection

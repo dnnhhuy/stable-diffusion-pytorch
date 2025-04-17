@@ -8,7 +8,7 @@ from models.ddpm import DDPMSampler
 from models.ddim import DDIMSampler
 from models.vae import VAE, VQVAE
 from models.unet import UNet
-from models.cond_encoder import TextEncoder, ClassEncoder
+from models.clip import TextEncoder, ClassEncoder
 import numpy as np
 from PIL import Image
 from typing import Tuple

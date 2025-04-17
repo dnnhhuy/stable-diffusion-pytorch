@@ -8,7 +8,7 @@ class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.sigmoid(x * 1.702)
 
-class GeGELU(nn.Module):
+class GeGLU(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.proj = nn.Linear(in_channels, out_channels * 2)

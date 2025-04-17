@@ -3,7 +3,7 @@ import torch.utils.checkpoint as checkpoint
 import torch.nn as nn
 import torch.nn.functional as F
 from .attention import MultiheadSelfAttention
-from .activation_fn import GeGELU
+from .activation_fn import GeGLU
 from typing import Optional, List
 
 
@@ -57,7 +57,7 @@ class UNet_AttentionBlock(nn.Module):
         self.layernorm_3 = nn.LayerNorm(embedding_dim)
                 
         self.ffn = nn.Sequential(
-            GeGELU(embedding_dim, embedding_dim * 4),
+            GeGLU(embedding_dim, embedding_dim * 4),
             nn.Linear(embedding_dim * 4, embedding_dim))
 
         if use_lora:

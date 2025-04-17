@@ -16,13 +16,13 @@ class MultiheadSelfAttention(nn.Module):
         if not cond_dim:
             cond_dim = embedding_dim
             
-        self.proj_q = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
-        self.proj_k = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
-        self.proj_v = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        self.q_proj = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
+        self.k_proj = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        self.v_proj = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
         
         self.num_heads = num_heads
         self.head_dim = embedding_dim // self.num_heads
-        self.proj_out = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
+        self.out_proj = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
         self.use_flash_attention = False
         self.dropout = dropout
     
@@ -51,7 +51,7 @@ class MultiheadSelfAttention(nn.Module):
         
         attn_weights = F.dropout(attn_weights, self.dropout)
 
-        out = self.proj_out(attn_weights)
+        out = self.out_proj(attn_weights)
         return out
     
     def flash_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, lookahead_mask: bool):
@@ -67,7 +67,7 @@ class MultiheadSelfAttention(nn.Module):
         
         out = F.dropout(out, self.dropout)
         
-        out = self.proj_out(out)
+        out = self.out_proj(out)
         
         return out
         
@@ -75,16 +75,15 @@ class MultiheadSelfAttention(nn.Module):
     def forward(self, x: torch.Tensor, cond: torch.Tensor=None, lookahead_mask: bool=False) -> torch.Tensor:
         # x: (n, seq_len, embedding_dim)
         # cond: (n, seq_len, cond_dim)
-       
         if cond is None:
             cond = x
             
         if len(cond.shape) < len(x.shape):
             cond = cond.unsqueeze(1)
         
-        q = self.proj_q(x)
-        k = self.proj_k(cond)
-        v = self.proj_v(cond)
+        q = self.q_proj(x)
+        k = self.k_proj(cond)
+        v = self.v_proj(cond)
         
         if self.use_flash_attention and self.head_dim <= 128 and flash_attn_func is not None:
             return self.flash_attention(q, k, v, lookahead_mask)
