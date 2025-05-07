@@ -5,9 +5,11 @@ Summary of what implemented in this repository:
 * Stable Diffusion Architecure
     * VAE (Variational Auto Encoder)
     * U-Net
-    * Text Encoder from CLIP ViT-L/14.
+    * Text Encoder from CLIP ViT-L/14 for SD 1.5, OpenCLIP ViT-H for SD 2.1
 * DDPM (Denoising Diffusion Probabilistic Models)
 * DDIM (Denoising Diffusion Implicit Models)
+* V-Prediction
+* One Step Diffusion using SwiftBrush
 * Beta Cosine based scheduler
 * CFG (Classifer free Guidance)
 * LoRA (Low Rank Adaptation)
@@ -68,6 +70,8 @@ conda activate ./.env
     --batch_size          Number of images generated in the same
                           time.
     --seed                Seed for reproducibility.
+    --one_step            Specify to use one step generation.
+    --sd_version          Specify Stable Diffusion model version.
     ```
 
 ## References
@@ -76,3 +80,5 @@ conda activate ./.env
 * Alex Nichol & Prafulla Dhariwal. [“Improved denoising diffusion probabilistic models”](https://arxiv.org/abs/2102.09672) arxiv Preprint arxiv:2102.09672 (2021).
 * Robin R. and et al, ["High-Resolution Image Synthesis with Latent Diffusion Models"](https://arxiv.org/abs/2112.10752) arxiv Preprint arXiv:2112.10752v2 (2021).
 * Jonathan Ho & Tim Salimans. [“Classifier-Free Diffusion Guidance.”](https://arxiv.org/abs/2207.12598) NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications. (2022)
+* Tim Salimans & Jonathan Ho. ["Progressive Distillation for Fast Sampling of Diffusion Models"](https://arxiv.org/abs/2202.00512) (2022)
+* Thuan Hoang Nguyen & Anh Tran. ["SwiftBrush: One-Step Text-to-Image Diffusion Model with Variational Score Distillation"](https://arxiv.org/abs/2312.05239) arxiv Preprint arXiv:2312.05239v7 (2024).
