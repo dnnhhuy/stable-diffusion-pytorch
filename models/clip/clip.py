@@ -3,7 +3,7 @@ from torch import nn
 import torch.utils.checkpoint as checkpoint
 
 from .attention import MultiheadSelfAttention
-from .activation_fn import QuickGELU
+from ..activation_fn import QuickGELU
 
 class TextEncoder(nn.Module):
     def __init__(self, n_vocab: int=49408, embed_dim: int=768, max_len: int=77):

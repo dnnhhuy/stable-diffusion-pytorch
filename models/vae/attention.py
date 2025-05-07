@@ -16,13 +16,13 @@ class MultiheadSelfAttention(nn.Module):
         if not cond_dim:
             cond_dim = embedding_dim
             
-        self.q_proj = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
-        self.k_proj = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
-        self.v_proj = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        self.query = nn.Linear(embedding_dim, embedding_dim, bias=qkv_bias)
+        self.key = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
+        self.value = nn.Linear(cond_dim, embedding_dim, bias=qkv_bias)
         
         self.num_heads = num_heads
         self.head_dim = embedding_dim // self.num_heads
-        self.out_proj = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
+        self.proj_attn = nn.Linear(embedding_dim, embedding_dim, bias=proj_out_bias)
         self.use_flash_attention = False
         self.dropout = dropout
     
@@ -51,7 +51,7 @@ class MultiheadSelfAttention(nn.Module):
         
         attn_weights = F.dropout(attn_weights, self.dropout)
 
-        out = self.out_proj(attn_weights)
+        out = self.proj_attn(attn_weights)
         return out
     
     def flash_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, lookahead_mask: bool):
@@ -67,7 +67,7 @@ class MultiheadSelfAttention(nn.Module):
         
         out = F.dropout(out, self.dropout)
         
-        out = self.out_proj(out)
+        out = self.proj_attn(out)
         
         return out
         
@@ -81,9 +81,9 @@ class MultiheadSelfAttention(nn.Module):
         if len(cond.shape) < len(x.shape):
             cond = cond.unsqueeze(1)
         
-        q = self.q_proj(x)
-        k = self.k_proj(cond)
-        v = self.v_proj(cond)
+        q = self.query(x)
+        k = self.key(cond)
+        v = self.value(cond)
         
         if self.use_flash_attention and self.head_dim <= 128 and flash_attn_func is not None:
             return self.flash_attention(q, k, v, lookahead_mask)

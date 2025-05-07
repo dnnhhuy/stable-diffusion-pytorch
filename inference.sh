@@ -1,9 +1,14 @@
-python3 inference.py --model_path ./weights/model/v1-5-pruned-emaonly.ckpt \
---tokenizer_dir ./weights/tokenizer \
+python inference.py --model_path ./weights/swiftbrush/ \
+--tokenizer_dir ./weights/swiftbrush/tokenizer \
+--sd_version "2.1" \
 --device mps \
 --img_size 512 \
---prompt "A cat" \
---n_samples 1000 \
---batch_size 2 \
+--prompt "a beautiful sport car" \
+--uncond_prompt "low quality, blurry, unfinished, distorted, mishapen" \
+--n_samples 1 \
+--batch_size 1 \
 --sampler ddim \
---do_cfg
+--do_cfg \
+--cfg_scale 8.5 \
+--num_inference_steps 24 \
+--one_step

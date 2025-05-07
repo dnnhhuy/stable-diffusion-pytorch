@@ -1,3 +1,5 @@
+import os
+import json
 import torch
 from torch import nn
 import numpy as np
@@ -78,4 +80,11 @@ class DDPMSampler:
         noise = torch.randn(x_t.shape, dtype=x_t.dtype, device=x_t.device)
         less_noise_sample = mu + stdev * noise
         return less_noise_sample
+    
+    @staticmethod
+    def from_config(cfg_path: str, use_cosine_schedule: bool=False, device: str='cpu'):
+        with open(os.path.join(cfg_path, "scheduler_config.json"), 'r') as f:
+            config = json.load(f)
+        scheduler = DDPMSampler(noise_step=config["num_train_timesteps"], beta_start=config["beta_start"], beta_end=config["beta_end"], use_cosine_schedule=use_cosine_schedule, device=device, prediction_type=config["prediction_type"])
+        return scheduler
         

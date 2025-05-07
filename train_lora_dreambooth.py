@@ -13,9 +13,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from transformers import CLIPTokenizer
-from utils import load_model, datasets
-from models import get_lora_model, enable_lora
-from models.ddim import DDIMSampler
+from utils.utils import load_model
+import utils.datasets as datasets
+from models.lora import get_lora_model, enable_lora
+from models.scheduler import DDIMSampler
 from models.ema import EMA
 from models.diffusion import StableDiffusion
 
